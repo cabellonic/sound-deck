@@ -14,9 +14,15 @@ updates:
       interval: weekly
     cooldown:
       default-days: 3
-    # Agrupar lo menor deja un PR por semana en vez de uno por dependencia.
-    # Lo mayor viene suelto a proposito: es lo que puede romper.
     groups:
+      # `eslint` y `@eslint/js` se versionan en paralelo y tienen que subir de
+      # mayor a la vez: por separado, mergear uno solo rompe el lint. Aca
+      # agrupar lo mayor es lo correcto, porque el riesgo ya es compartido.
+      eslint:
+        patterns: ['eslint', '@eslint/*', 'eslint-plugin-*', 'typescript-eslint']
+        update-types: [major, minor, patch]
+      # Agrupar lo menor deja un PR por semana en vez de uno por dependencia.
+      # Lo mayor viene suelto a proposito: es lo que puede romper.
       frontend:
         update-types: [minor, patch]
     open-pull-requests-limit: 5
