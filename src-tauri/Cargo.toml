@@ -46,7 +46,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 async-trait = "0.1"
 
 # Parseo HTML para los proveedores sin API (solo MyInstants, §12).
-scraper = { version = "0.23", default-features = false }
+scraper = { version = "0.27", default-features = false }
 
 # Utilidades
 uuid = { version = "1", features = ["v4", "serde"] }
