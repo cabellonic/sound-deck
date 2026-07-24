@@ -1,0 +1,41 @@
+name: Dependabot auto-merge
+
+# Mergea solo las actualizaciones de version menor y de parche de Dependabot,
+# y recien cuando CI pasa. Las versiones mayores quedan siempre para revisar a
+# mano, porque son las que pueden traer cambios que rompen.
+#
+# REQUISITO, y no es opcional: la rama `main` tiene que tener checks
+# obligatorios configurados (Settings -> Rules -> Rulesets -> Require status
+# checks to pass). El `--auto` de abajo significa "merge cuando se cumplan los
+# requisitos"; si no hay ningun requisito configurado, se cumple al instante y
+# esto mergea sin haber probado nada. Con los checks puestos, un PR que rompe
+# el build se queda esperando para siempre, que es lo que se busca.
+on: pull_request_target
+
+# `pull_request_target` corre con el token del repositorio base, que es lo unico
+# que tiene permiso para mergear. Es seguro aca porque este workflow NO hace
+# checkout ni ejecuta nada del codigo del PR: solo lee metadatos y llama a la
+# API. Hacer checkout del PR bajo `pull_request_target` seria darle el token a
+# codigo de terceros.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    # Ademas del `if`, el token de Dependabot esta limitado por GitHub: este
+    # workflow no puede dispararlo un PR de otra persona haciendose pasar por el.
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Leer que tipo de actualizacion es
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+
+      - name: Habilitar auto-merge para menores y parches
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

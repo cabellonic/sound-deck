@@ -30,3 +30,10 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # Aca se agrupa tambien lo mayor. Subir de `checkout@v4` a `v5` no cambia
+    # como se usa la accion, y revisar cuatro PRs de una linea cada uno es ruido
+    # sin nada a cambio. Si alguna rompe, CI lo dice en el mismo PR agrupado.
+    groups:
+      acciones:
+        patterns: ['*']
+        update-types: [major, minor, patch]
