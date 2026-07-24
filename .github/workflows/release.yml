@@ -82,7 +82,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Compilar y publicar los artefactos
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # El empaquetado del AppImage corre linuxdeploy, que normalmente
