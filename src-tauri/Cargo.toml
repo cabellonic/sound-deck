@@ -24,7 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Persistencia: rusqlite con SQLite embebido (bundled), sin depender de la libreria del sistema.
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Audio. cpal se usa a traves del re-export `rodio::cpal` para garantizar la misma version.
 rodio = { version = "0.22", default-features = false, features = [
