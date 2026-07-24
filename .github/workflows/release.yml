@@ -21,7 +21,7 @@ jobs:
     name: Verificar version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: La etiqueta tiene que coincidir con la version del proyecto
         run: |
@@ -55,7 +55,7 @@ jobs:
           - os: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Dependencias de sistema de Tauri
         if: runner.os == 'Linux'
