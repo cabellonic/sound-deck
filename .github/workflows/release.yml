@@ -18,7 +18,7 @@ jobs:
     name: Verificar version
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: La etiqueta tiene que coincidir con la version del proyecto
         run: |
@@ -50,7 +50,7 @@ jobs:
           - os: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Dependencias de sistema de Tauri
         if: runner.os == 'Linux'
@@ -63,8 +63,8 @@ jobs:
             librsvg2-dev \
             libasound2-dev
 
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -77,7 +77,7 @@ jobs:
           workspaces: src-tauri
 
       - name: Compilar y publicar los artefactos
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # linuxdeploy necesita FUSE, que en un runner no hay.
