@@ -1,0 +1,58 @@
+<!doctype html>
+<!--
+  Fixture recortado de una pagina de resultados de MyInstants.
+  Solo conserva la estructura que el parser necesita, mas los casos raros que
+  aparecen en la practica: `onmousedown` en vez de `onclick`, nombres con
+  espacios y saltos de linea, una tarjeta sin audio y otra sin nombre.
+  No contiene ningun audio ni contenido del sitio.
+-->
+<html lang="en">
+  <head>
+    <title>Search results | Myinstants</title>
+  </head>
+  <body>
+    <div class="search-results">
+      <div class="instant">
+        <button
+          class="small-button"
+          onclick="play('/media/sounds/bruh-sound-effect.mp3', '/instant/bruh-sound-effect-6968/', 'bruh sound effect')"
+        ></button>
+        <a href="/en/instant/bruh-sound-effect-6968/" class="instant-link link-secondary"
+          >bruh sound effect</a
+        >
+      </div>
+
+      <div class="instant">
+        <button
+          class="small-button"
+          onmousedown="play('/media/sounds/risa-malvada.mp3', '/instant/risa-malvada-1204/', 'risa malvada')"
+        ></button>
+        <a href="/en/instant/risa-malvada-1204/" class="instant-link link-secondary"
+          >risa malvada</a
+        >
+      </div>
+
+      <div class="instant">
+        <button
+          class="small-button"
+          onclick="play('/media/sounds/que-pasa-bebe.mp3', '/instant/que-pasa-bebe-88/', 'que pasa bebe')"
+        ></button>
+        <a href="/en/instant/que-pasa-bebe-88/" class="instant-link link-secondary">
+          que pasa
+          bebé
+        </a>
+      </div>
+
+      <!-- Tarjeta rota: tiene nombre pero el boton no lleva `play(...)`. -->
+      <div class="instant">
+        <button class="small-button" onclick="favorite(1234)"></button>
+        <a href="/en/instant/sin-audio-1/" class="instant-link link-secondary">sin audio</a>
+      </div>
+
+      <!-- Tarjeta rota: tiene audio pero se quedo sin enlace ni nombre. -->
+      <div class="instant">
+        <button class="small-button" onclick="play('/media/sounds/anonimo.mp3')"></button>
+      </div>
+    </div>
+  </body>
+</html>

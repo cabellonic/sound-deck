@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="es" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' asset: http://asset.localhost data:; media-src 'self' asset: http://asset.localhost blob: https:; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost"
+    />
+    <title>Sound Deck</title>
+  </head>
+  <body class="bg-surface-0 text-fg-default antialiased">
+    <div id="root"></div>
+    <script type="module" src="/src/windows/main/main.tsx"></script>
+  </body>
+</html>

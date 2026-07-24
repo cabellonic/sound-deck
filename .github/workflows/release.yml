@@ -1,0 +1,108 @@
+name: Release
+
+# Se dispara al empujar una etiqueta `vX.Y.Z`. Publicar es una decision
+# explicita, no algo que pase solo con cada merge a main.
+on:
+  push:
+    tags: ['v*']
+
+# Necesario para que la accion pueda crear la release y subir los binarios.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Una etiqueta que no coincide con la version del proyecto produce una release
+  # que dice una cosa y contiene otra. Sale barato detectarlo antes de gastar
+  # veinte minutos compilando.
+  verificar-version:
+    name: Verificar version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: La etiqueta tiene que coincidir con la version del proyecto
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          conf=$(jq -r .version src-tauri/tauri.conf.json)
+          pkg=$(jq -r .version package.json)
+
+          echo "etiqueta        : $tag"
+          echo "tauri.conf.json : $conf"
+          echo "package.json    : $pkg"
+
+          if [ "$tag" != "$conf" ] || [ "$tag" != "$pkg" ]; then
+            echo "::error::La etiqueta v$tag no coincide con la version del proyecto." \
+                 "Actualiza package.json y src-tauri/tauri.conf.json, o corregi la etiqueta."
+            exit 1
+          fi
+
+  build:
+    name: Build (${{ matrix.os }})
+    needs: verificar-version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Se compila sobre la version mas vieja de Ubuntu que siga disponible:
+          # el binario queda atado a esa glibc, asi que compilar aca hace que el
+          # .deb tambien instale en distribuciones mas viejas. Si GitHub retira
+          # este runner, subir a ubuntu-24.04 y perder esa compatibilidad.
+          - os: ubuntu-22.04
+          - os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias de sistema de Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libasound2-dev
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Compilar y publicar los artefactos
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # El empaquetado del AppImage corre linuxdeploy, que normalmente
+          # necesita FUSE. En un runner no hay, asi que se le pide que se
+          # extraiga en vez de montarse.
+          APPIMAGE_EXTRACT_AND_RUN: 1
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Sound Deck ${{ github.ref_name }}
+          releaseBody: |
+            Instaladores de Sound Deck ${{ github.ref_name }}.
+
+            - **Windows**: descarga el `.exe` (instalador NSIS, se instala por usuario y no pide permisos de administrador).
+            - **Linux**: el `.deb` para Debian y Ubuntu, o el `.AppImage` si tu distribucion es otra.
+
+            Los instaladores no estan firmados digitalmente, asi que Windows va a
+            mostrar un aviso de SmartScreen la primera vez: "Mas informacion" y
+            "Ejecutar de todas formas".
+          # Se publica como borrador a proposito: da la oportunidad de revisar
+          # que los artefactos de los dos sistemas hayan subido antes de que la
+          # release sea visible.
+          releaseDraft: true
+          prerelease: false

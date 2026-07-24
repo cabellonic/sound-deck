@@ -1,0 +1,4 @@
+# pnpm >= 10 lee estos ajustes desde aqui, no desde package.json.
+# esbuild necesita su script de post-instalacion para colocar el binario nativo.
+allowBuilds:
+  esbuild: true

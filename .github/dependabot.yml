@@ -1,0 +1,32 @@
+version: 2
+
+# Dependabot abre pull requests con las actualizaciones de dependencias. Como CI
+# corre en cada PR, cada actualizacion llega ya probada: si rompe algo, se ve en
+# el PR y no en tu maquina un mes despues.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    # Sin esto llegan diez PRs sueltos por semana. Agrupar las actualizaciones
+    # menores deja uno solo, que es revisable.
+    groups:
+      frontend:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    groups:
+      rust:
+        update-types: [minor, patch]
+    open-pull-requests-limit: 5
+
+  # Las propias acciones de los workflows tambien envejecen, y son las que
+  # tienen acceso al token que publica las releases.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly

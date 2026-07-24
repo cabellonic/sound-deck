@@ -1,0 +1,42 @@
+{
+  "count": 1523,
+  "next": "https://freesound.org/apiv2/search/text/?page=2&query=bruh",
+  "previous": null,
+  "results": [
+    {
+      "id": 573661,
+      "name": "bruh sound effect",
+      "description": "Efecto de sonido corto usado como reaccion en videos.",
+      "duration": 1.234,
+      "filesize": 48213,
+      "tags": ["meme", "voice", "bruh"],
+      "license": "https://creativecommons.org/publicdomain/zero/1.0/",
+      "url": "https://freesound.org/people/usuario-demo/sounds/573661/",
+      "username": "usuario-demo",
+      "previews": {
+        "preview-hq-mp3": "https://cdn.freesound.org/previews/573/573661_11861866-hq.mp3",
+        "preview-lq-mp3": "https://cdn.freesound.org/previews/573/573661_11861866-lq.mp3"
+      }
+    },
+    {
+      "id": 100,
+      "name": "aplauso corto",
+      "description": "",
+      "duration": 0.5,
+      "filesize": 12000,
+      "tags": ["applause", "crowd"],
+      "license": "http://creativecommons.org/licenses/by/4.0/",
+      "url": "https://freesound.org/people/otro/sounds/100/",
+      "username": "otro",
+      "previews": {
+        "preview-lq-mp3": "https://cdn.freesound.org/previews/100/100_1-lq.mp3"
+      }
+    },
+    {
+      "id": 999,
+      "name": "   ",
+      "tags": [],
+      "url": "https://freesound.org/people/tercero/sounds/999/"
+    }
+  ]
+}

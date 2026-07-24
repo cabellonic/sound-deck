@@ -1,0 +1,4 @@
+# Este repositorio se clona en Windows con core.autocrlf activado. Los scripts
+# de shell corren dentro de WSL, y bash con finales de linea CRLF falla con un
+# "\r: command not found" que no dice nada util. Se fuerzan a LF siempre.
+*.sh text eol=lf

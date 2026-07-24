@@ -1,0 +1,53 @@
+# Dependencias
+node_modules/
+.pnpm-store/
+
+# Builds
+dist/
+dist-ssr/
+dist-linux/
+build/
+src-tauri/target/
+src-tauri/gen/
+
+# Entorno y secretos
+.env
+.env.local
+.env.*.local
+*.pem
+secrets.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+logs/
+
+# Editores
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test / cobertura
+coverage/
+.vitest/
+
+# Artefactos temporales
+*.tsbuildinfo
+tmp/
+temp/
+
+# Notas y documentos de trabajo que no forman parte del proyecto publicado.
+# El prompt maestro con el que nacio esto vive aca: los comentarios del codigo
+# todavia citan sus secciones como "§7", "§14", etc.
+_local/
