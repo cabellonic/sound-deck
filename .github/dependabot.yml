@@ -1,10 +1,19 @@
 version: 2
 
+# El objetivo es que esto se resuelva solo: lo menor y los parches entran sin
+# intervencion, y solo llegan a manos humanas las versiones mayores.
+#
+# El `cooldown` no es cosmetico. pnpm 11 rechaza los paquetes publicados hace
+# menos de un dia (politica `minimumReleaseAge`, contra ataques de cadena de
+# suministro). Sin esperar, Dependabot propone la version el mismo dia que sale
+# y CI muere en `pnpm install` antes de compilar nada. Tres dias dan margen.
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     # Agrupar lo menor deja un PR por semana en vez de uno por dependencia.
     # Lo mayor viene suelto a proposito: es lo que puede romper.
     groups:
@@ -16,6 +25,8 @@ updates:
     directory: /src-tauri
     schedule:
       interval: weekly
+    cooldown:
+      default-days: 3
     groups:
       rust:
         update-types: [minor, patch]
@@ -25,9 +36,11 @@ updates:
     directory: /
     schedule:
       interval: monthly
-    # Aca se agrupa tambien lo mayor: subir de `checkout@v4` a `v5` no cambia
-    # como se usa la accion.
+    cooldown:
+      default-days: 3
+    # Solo se agrupa lo menor. Agrupar tambien lo mayor junta riesgos
+    # independientes: una sola accion que rompa arrastra a las demas del lote.
     groups:
       acciones:
         patterns: ['*']
-        update-types: [major, minor, patch]
+        update-types: [minor, patch]
