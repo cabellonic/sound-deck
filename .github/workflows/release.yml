@@ -1,12 +1,11 @@
 name: Release
 
-# Se dispara al empujar una etiqueta `vX.Y.Z`. Publicar es una decision
-# explicita, no algo que pase solo con cada merge a main.
+# Se dispara al empujar una etiqueta `vX.Y.Z`.
 on:
   push:
     tags: ['v*']
 
-# Necesario para que la accion pueda crear la release y subir los binarios.
+# Para crear la release y subir los binarios.
 permissions:
   contents: write
 
@@ -14,9 +13,7 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # Una etiqueta que no coincide con la version del proyecto produce una release
-  # que dice una cosa y contiene otra. Sale barato detectarlo antes de gastar
-  # veinte minutos compilando.
+  # Detectar el desajuste antes de compilar veinte minutos.
   verificar-version:
     name: Verificar version
     runs-on: ubuntu-latest
@@ -47,10 +44,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Se compila sobre la version mas vieja de Ubuntu que siga disponible:
-          # el binario queda atado a esa glibc, asi que compilar aca hace que el
-          # .deb tambien instale en distribuciones mas viejas. Si GitHub retira
-          # este runner, subir a ubuntu-24.04 y perder esa compatibilidad.
+          # El binario queda atado a la glibc del runner: compilar en la
+          # version mas vieja disponible amplia donde instala el .deb.
           - os: ubuntu-22.04
           - os: windows-latest
 
@@ -85,9 +80,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # El empaquetado del AppImage corre linuxdeploy, que normalmente
-          # necesita FUSE. En un runner no hay, asi que se le pide que se
-          # extraiga en vez de montarse.
+          # linuxdeploy necesita FUSE, que en un runner no hay.
           APPIMAGE_EXTRACT_AND_RUN: 1
         with:
           tagName: ${{ github.ref_name }}
@@ -101,8 +94,7 @@ jobs:
             Los instaladores no estan firmados digitalmente, asi que Windows va a
             mostrar un aviso de SmartScreen la primera vez: "Mas informacion" y
             "Ejecutar de todas formas".
-          # Se publica como borrador a proposito: da la oportunidad de revisar
-          # que los artefactos de los dos sistemas hayan subido antes de que la
-          # release sea visible.
+          # Borrador: permite revisar que subieron los artefactos de ambos
+          # sistemas antes de que la release sea visible.
           releaseDraft: true
           prerelease: false

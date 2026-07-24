@@ -1,15 +1,12 @@
 version: 2
 
-# Dependabot abre pull requests con las actualizaciones de dependencias. Como CI
-# corre en cada PR, cada actualizacion llega ya probada: si rompe algo, se ve en
-# el PR y no en tu maquina un mes despues.
 updates:
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
-    # Sin esto llegan diez PRs sueltos por semana. Agrupar las actualizaciones
-    # menores deja uno solo, que es revisable.
+    # Agrupar lo menor deja un PR por semana en vez de uno por dependencia.
+    # Lo mayor viene suelto a proposito: es lo que puede romper.
     groups:
       frontend:
         update-types: [minor, patch]
@@ -24,15 +21,12 @@ updates:
         update-types: [minor, patch]
     open-pull-requests-limit: 5
 
-  # Las propias acciones de los workflows tambien envejecen, y son las que
-  # tienen acceso al token que publica las releases.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
-    # Aca se agrupa tambien lo mayor. Subir de `checkout@v4` a `v5` no cambia
-    # como se usa la accion, y revisar cuatro PRs de una linea cada uno es ruido
-    # sin nada a cambio. Si alguna rompe, CI lo dice en el mismo PR agrupado.
+    # Aca se agrupa tambien lo mayor: subir de `checkout@v4` a `v5` no cambia
+    # como se usa la accion.
     groups:
       acciones:
         patterns: ['*']
