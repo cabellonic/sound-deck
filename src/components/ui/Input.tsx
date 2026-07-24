@@ -10,7 +10,9 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
         className={cn(
           'h-9 w-full rounded-md border border-border-subtle bg-surface-1 px-3 text-sm',
           'text-fg-default placeholder:text-fg-subtle',
-          'focus:border-accent focus:outline-none focus-visible:outline-2 focus-visible:outline-accent',
+          // El anillo lo pone el estilo global, y solo en modo teclado; con el
+          // mouse alcanza con que se marque el borde.
+          'focus:border-accent',
           'disabled:cursor-not-allowed disabled:opacity-60',
           className,
         )}

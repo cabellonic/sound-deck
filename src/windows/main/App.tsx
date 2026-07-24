@@ -372,12 +372,6 @@ export function App() {
             ) : (
               <p className="text-sm text-fg-subtle">No hay ninguna pagina activa.</p>
             )}
-
-            <p className="mt-auto text-[11px] leading-relaxed text-fg-subtle">
-              Arrastra un audio de la biblioteca a un boton, o usa el menu &ldquo;Asignar
-              a...&rdquo;. Tambien podes soltar archivos desde el explorador. Las teclas 1 a 9
-              reproducen los botones de la pagina activa.
-            </p>
           </section>
 
           <LibraryPanel

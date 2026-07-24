@@ -31,34 +31,21 @@ compilados automáticamente para cada versión publicada.
 | Debian / Ubuntu      | `Sound.Deck_x.y.z_amd64.deb`      | `sudo apt install ./Sound.Deck_*.deb`                       |
 | Otras distribuciones | `Sound.Deck_x.y.z_amd64.AppImage` | `chmod +x` y ejecutar                                       |
 
-Los instaladores **no están firmados digitalmente**: un certificado de firma de
-código cuesta dinero y este proyecto no lo tiene. La primera vez, Windows va a
+Los instaladores **no están firmados digitalmente**. La primera vez, Windows va a
 mostrar un aviso de SmartScreen — **Más información** → **Ejecutar de todas
 formas**. Si preferís no confiar en un binario sin firmar, compilalo vos mismo
 con las instrucciones de más abajo: es la misma fuente.
 
 ---
 
-## Capturas
+## Cómo se ve
 
-> _Pendientes._ La aplicación todavía no tiene capturas publicadas. La estructura visual es:
->
-> ```text
-> ┌───────────────────────────────────────────────────────────────┐
-> │ Sound Deck 0.1.0            [Detener] [Overlay] [⚙]           │
-> ├──────────────────────┬────────────────────────────────────────┤
-> │ BOTONERA             │ BIBLIOTECA                             │
-> │ Página: Principal    │ [ Buscar audios...        ] [Importar] │
-> │  ┌───┬───┬───┐       │ (Guardados) (Internet)                 │
-> │  │ 1 │ 2 │ 3 │       │ [Todos][Recientes][Más usados][...]    │
-> │  ├───┼───┼───┤       │                                        │
-> │  │ 4 │ 5 │ 6 │       │ ▶ Bruh      0:01  ⋮   ▶ Vine  0:02  ⋮ │
-> │  ├───┼───┼───┤       │ ▶ Bonk      0:01  ⋮   ▶ Risa  0:03  ⋮ │
-> │  │ 7 │ 8 │ 9 │       │                                        │
-> │  └───┴───┴───┘       │                                        │
-> │     ←  1 / 3  →      │                                        │
-> └──────────────────────┴────────────────────────────────────────┘
-> ```
+![Ventana principal de Sound Deck: la botonera de nueve slots a la izquierda y la biblioteca con resultados de búsqueda online a la derecha](docs/screenshots/ventana-principal.png)
+
+A la izquierda la botonera, con las nueve teclas de la página activa. A la
+derecha la biblioteca: la pestaña **Guardados** son tus audios locales y la
+pestaña **Internet** busca en los proveedores que tengas activados. Un audio se
+asigna a un botón arrastrándolo, o desde el menú **Asignar a...**.
 
 ---
 
@@ -424,6 +411,4 @@ teclado invasivos.
 
 ## Contribuir
 
-Ver `CONTRIBUTING.md`. Las pruebas manuales que los tests automatizados no pueden
-cubrir (audio real, foco de ventanas, overlay sobre un juego) están en
-`MANUAL-TESTS.md`.
+Ver `CONTRIBUTING.md`.

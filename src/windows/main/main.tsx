@@ -4,7 +4,11 @@ import { createRoot } from 'react-dom/client';
 
 import '@/styles/globals.css';
 
+import { initFocusRing } from '@/lib/focusRing';
+
 import { App } from './App';
+
+initFocusRing();
 
 const queryClient = new QueryClient({
   defaultOptions: {

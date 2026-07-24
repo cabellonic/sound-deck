@@ -961,8 +961,11 @@ function CreditsSection({ version }: { version: string }) {
       ))}
 
       <p className="text-xs leading-relaxed text-fg-subtle">
-        El detalle completo de dependencias y licencias esta en{' '}
-        <span className="font-mono text-fg-muted">THIRD-PARTY.md</span>, dentro del repositorio.
+        Desarrollado por{' '}
+        <a href="https://github.com/cabellonic" className="text-accent underline">
+          cabellonic
+        </a>{' '}
+        con ayuda de Claude.
       </p>
 
       {folders.data ? (

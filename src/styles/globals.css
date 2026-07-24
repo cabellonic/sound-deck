@@ -72,8 +72,18 @@
     -webkit-font-smoothing: antialiased;
   }
 
-  /* El foco siempre debe verse: la app se opera con teclado (§28). */
+  /*
+    El foco debe verse cuando se opera con teclado (§28), pero solo entonces:
+    `initFocusRing` anota el modo en `<html>`. Si el ultimo movimiento fue del
+    mouse no dibujamos nada, porque Chromium marca como `:focus-visible` lo que
+    quedo enfocado por un click en cuanto se pulsa cualquier tecla, y los
+    atajos 1-9 hacian aparecer el anillo en cualquier parte.
+  */
   :focus-visible {
+    outline: none;
+  }
+
+  :root[data-nav='keyboard'] :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
   }

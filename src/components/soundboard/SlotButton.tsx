@@ -120,7 +120,6 @@ export function SlotButton({
       className={cn(
         'group relative flex aspect-square w-full flex-col justify-between overflow-hidden rounded-lg',
         'border p-2.5 text-left transition-colors',
-        'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
         label
           ? 'border-border-strong bg-surface-2 hover:bg-surface-3'
           : 'border-dashed border-border-subtle bg-surface-1 hover:border-border-strong',
