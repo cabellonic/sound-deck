@@ -20,7 +20,7 @@ import { SettingsDialog } from '@/components/settings/SettingsDialog';
 import { Toaster } from '@/components/ui/Toaster';
 import { queryKeys } from '@/features/queryKeys';
 import { useAppEvents } from '@/features/useAppEvents';
-import { useFileDrop } from '@/features/useFileDrop';
+import { useFileDrop, type SoundDropTarget } from '@/features/useFileDrop';
 import { useLibraryMutations } from '@/features/useLibrary';
 import { useNativeContextMenu } from '@/features/useNativeContextMenu';
 import { useSlotKeys } from '@/features/useSlotKeys';
@@ -32,10 +32,11 @@ import {
   useSlotMutations,
 } from '@/features/useSoundboard';
 import { useTheme } from '@/features/useTheme';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { DragPayload } from '@/lib/drag';
 import * as ipc from '@/lib/ipc';
 import { errorMessage } from '@/lib/ipc';
-import { volumeToPercent } from '@/lib/utils';
+import { formatAccelerator, volumeToPercent } from '@/lib/utils';
 import { useUiStore } from '@/stores/useUiStore';
 import type {
   PageSummary,
@@ -61,9 +62,17 @@ type DialogState =
   | { kind: 'slot-volume'; slot: SoundSlot }
   | { kind: 'slot-details'; slot: SoundSlot }
   | { kind: 'assign-local'; sound: Sound }
-  | { kind: 'assign-remote'; item: RemoteSound };
+  | { kind: 'assign-remote'; item: RemoteSound }
+  | {
+      kind: 'download-for-image';
+      providerId: string;
+      remoteId: string;
+      name: string;
+      image: string;
+    };
 
 export function App() {
+  const { t, tp } = useTranslation();
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
   const [slotDownloads, setSlotDownloads] = useState<Record<number, number>>({});
 
@@ -226,9 +235,53 @@ export function App() {
     [library.importFiles],
   );
 
+  const imageExtensions = useQuery({
+    queryKey: queryKeys.imageExtensions,
+    queryFn: ipc.supportedImageExtensions,
+    staleTime: Infinity,
+  });
+
+  const isImagePath = useCallback(
+    (path: string) => {
+      const extension = path.split('.').pop()?.toLowerCase();
+      return extension !== undefined && (imageExtensions.data ?? []).includes(extension);
+    },
+    [imageExtensions.data],
+  );
+
+  /**
+   * Una imagen soltada sobre una fila de la biblioteca se le asigna a ese audio.
+   * Si el audio todavia no esta descargado no hay a que asignarsela, asi que se
+   * pregunta antes de bajarlo.
+   */
+  const handleDropImageOnSound = useCallback(
+    (target: SoundDropTarget, image: string) => {
+      if (target.kind === 'local') {
+        library.setImage.mutate({ soundId: target.soundId, path: image });
+        return;
+      }
+
+      if (target.savedSoundId) {
+        library.setImage.mutate({ soundId: target.savedSoundId, path: image });
+        return;
+      }
+
+      setDialog({
+        kind: 'download-for-image',
+        providerId: target.providerId,
+        remoteId: target.remoteId,
+        name: target.name,
+        image,
+      });
+    },
+    [library.setImage],
+  );
+
   const fileDrop = useFileDrop({
     onDropOnSlot: handleDropFilesOnSlot,
+    onDropImageOnSound: handleDropImageOnSound,
     onDropOnLibrary: handleDropFilesOnLibrary,
+    isImagePath,
   });
 
   const askDeleteSound = (sound: Sound) => {
@@ -255,7 +308,7 @@ export function App() {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-fg-muted">
         <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        Iniciando Sound Deck...
+        {t('app.starting')}
       </div>
     );
   }
@@ -264,7 +317,7 @@ export function App() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
         <p className="text-sm text-danger">{errorMessage(appState.error)}</p>
-        <Button onClick={() => void appState.refetch()}>Reintentar</Button>
+        <Button onClick={() => void appState.refetch()}>{t('common.retry')}</Button>
       </div>
     );
   }
@@ -281,13 +334,7 @@ export function App() {
           <span className="font-mono text-[10px] text-fg-subtle">{version}</span>
 
           <div className="ml-auto flex items-center gap-1.5">
-            <Tooltip
-              content={
-                isAnythingPlaying
-                  ? 'Detener todos los sonidos'
-                  : 'No hay nada sonando en este momento'
-              }
-            >
+            <Tooltip content={isAnythingPlaying ? t('app.stopAll') : t('app.nothingPlaying')}>
               {/* El tooltip necesita un elemento que reciba eventos: un boton
                   deshabilitado no los emite, por eso va envuelto. */}
               <span className="inline-flex">
@@ -298,13 +345,19 @@ export function App() {
                   onClick={() => void playback.stopAll()}
                 >
                   <Square className="h-3.5 w-3.5" aria-hidden />
-                  Detener
+                  {t('app.stop')}
                 </Button>
               </span>
             </Tooltip>
 
             <Tooltip
-              content={`Abrir overlay (${settings.data?.shortcuts.bindings.find((b) => b.action === 'toggle_overlay')?.accelerator ?? 'Ctrl+Alt+Space'})`}
+              content={t('app.openOverlay', {
+                accelerator: formatAccelerator(
+                  settings.data?.shortcuts.bindings.find((b) => b.action === 'toggle_overlay')
+                    ?.accelerator ?? 'Alt+Home',
+                  t,
+                ),
+              })}
             >
               <Button
                 variant="secondary"
@@ -316,16 +369,16 @@ export function App() {
                 }
               >
                 <Layers className="h-3.5 w-3.5" aria-hidden />
-                Overlay
+                {t('app.overlay')}
               </Button>
             </Tooltip>
 
-            <Tooltip content="Configuracion">
+            <Tooltip content={t('app.settings')}>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setSettingsOpen(true)}
-                aria-label="Abrir configuracion"
+                aria-label={t('app.openSettings')}
               >
                 <Settings className="h-4 w-4" aria-hidden />
               </Button>
@@ -335,8 +388,8 @@ export function App() {
 
         <main className="flex min-h-0 flex-1">
           <section
-            className="flex w-[22rem] shrink-0 flex-col gap-3 overflow-y-auto p-3"
-            aria-label="Botonera"
+            className="flex w-88 shrink-0 flex-col gap-3 overflow-y-auto p-3"
+            aria-label={t('soundboard.title')}
           >
             <PageBar
               pages={pageList}
@@ -370,7 +423,7 @@ export function App() {
                 onShowDetails={(slot) => setDialog({ kind: 'slot-details', slot })}
               />
             ) : (
-              <p className="text-sm text-fg-subtle">No hay ninguna pagina activa.</p>
+              <p className="text-sm text-fg-subtle">{t('app.noActivePage')}</p>
             )}
           </section>
 
@@ -383,7 +436,10 @@ export function App() {
             onRevealSound={revealSound}
             onOpenUrl={openUrlSafely}
             onOpenSettings={openSettings}
-            fileDropActive={fileDrop.isOver && fileDrop.hoveredSlot === null}
+            fileDropActive={
+              fileDrop.isOver && fileDrop.hoveredSlot === null && fileDrop.hoveredSoundKey === null
+            }
+            imageDropKey={fileDrop.hoveredSoundKey}
           />
         </main>
       </div>
@@ -407,19 +463,19 @@ export function App() {
       <PromptDialog
         open={dialog.kind === 'create-page'}
         onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
-        title="Nueva pagina"
-        description="Las paginas son colecciones libres: pueden mezclar audios de cualquier origen."
-        label="Nombre"
+        title={t('dialog.newPageTitle')}
+        description={t('dialog.newPageDescription')}
+        label={t('dialog.name')}
         initialValue=""
-        confirmLabel="Crear"
+        confirmLabel={t('dialog.create')}
         onConfirm={(name) => pageMutations.create.mutate(name)}
       />
 
       <PromptDialog
         open={dialog.kind === 'rename-page'}
         onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
-        title="Renombrar pagina"
-        label="Nombre"
+        title={t('dialog.renamePageTitle')}
+        label={t('dialog.name')}
         initialValue={dialog.kind === 'rename-page' ? dialog.page.name : ''}
         onConfirm={(name) => {
           if (dialog.kind === 'rename-page') {
@@ -431,21 +487,25 @@ export function App() {
       <ConfirmDialog
         open={dialog.kind === 'delete-page'}
         onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
-        title="Borrar pagina"
+        title={t('dialog.deletePageTitle')}
         description={
           dialog.kind === 'delete-page'
-            ? `Se va a borrar "${dialog.page.name}". Los audios siguen en la biblioteca.`
+            ? t('dialog.deletePageDescription', { name: dialog.page.name })
             : ''
         }
         details={
           dialog.kind === 'delete-page' && dialog.assigned > 0 ? (
             <p>
-              Esta pagina tiene <strong>{dialog.assigned}</strong>{' '}
-              {dialog.assigned === 1 ? 'boton asignado' : 'botones asignados'}.
+              {tp(
+                dialog.assigned,
+                'dialog.deletePageAssigned.one',
+                'dialog.deletePageAssigned.many',
+                { count: dialog.assigned },
+              )}
             </p>
           ) : undefined
         }
-        confirmLabel="Borrar pagina"
+        confirmLabel={t('dialog.deletePageTitle')}
         onConfirm={() => {
           if (dialog.kind === 'delete-page') pageMutations.remove.mutate(dialog.page.id);
         }}
@@ -454,8 +514,8 @@ export function App() {
       <PromptDialog
         open={dialog.kind === 'rename-sound'}
         onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
-        title="Renombrar audio"
-        label="Nombre"
+        title={t('dialog.renameSoundTitle')}
+        label={t('dialog.name')}
         initialValue={dialog.kind === 'rename-sound' ? dialog.sound.name : ''}
         onConfirm={(name) => {
           if (dialog.kind === 'rename-sound') {
@@ -467,12 +527,12 @@ export function App() {
       <VolumeDialog
         open={dialog.kind === 'sound-volume'}
         onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
-        title="Volumen del audio"
-        description="Vale para este audio en toda la aplicacion."
+        title={t('dialog.soundVolumeTitle')}
+        description={t('dialog.soundVolumeDescription')}
         value={dialog.kind === 'sound-volume' ? dialog.sound.customVolume : null}
         inheritedVolume={masterVolume}
-        inheritLabel="Seguir el volumen general"
-        inheritHint={`Al desactivarlo, este audio suena siempre al valor que elijas, aunque muevas el general (ahora en ${volumeToPercent(masterVolume)}%).`}
+        inheritLabel={t('dialog.followMaster')}
+        inheritHint={t('dialog.followMasterHint', { percent: volumeToPercent(masterVolume) })}
         onConfirm={(volume) => {
           if (dialog.kind === 'sound-volume') {
             library.setVolume.mutate({ soundId: dialog.sound.id, volume });
@@ -483,27 +543,30 @@ export function App() {
       <ConfirmDialog
         open={dialog.kind === 'delete-sound'}
         onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
-        title="Eliminar audio"
+        title={t('dialog.deleteSoundTitle')}
         description={
           dialog.kind === 'delete-sound'
-            ? `Se va a borrar "${dialog.sound.name}" de la biblioteca y del disco.`
+            ? t('dialog.deleteSoundDescription', { name: dialog.sound.name })
             : ''
         }
         details={
           dialog.kind === 'delete-sound' && dialog.usage.length > 0 ? (
             <div>
-              <p className="mb-1">Se va a quitar de estos botones:</p>
+              <p className="mb-1">{t('dialog.deleteSoundUsage')}</p>
               <ul className="list-inside list-disc text-xs">
                 {dialog.usage.map((usage) => (
                   <li key={`${usage.pageId}-${usage.slotNumber}`}>
-                    {usage.pageName} — boton {usage.slotNumber}
+                    {t('dialog.usageItem', {
+                      page: usage.pageName,
+                      slot: usage.slotNumber,
+                    })}
                   </li>
                 ))}
               </ul>
             </div>
           ) : undefined
         }
-        confirmLabel="Eliminar"
+        confirmLabel={t('common.remove')}
         onConfirm={() => {
           if (dialog.kind === 'delete-sound') library.remove.mutate(dialog.sound.id);
         }}
@@ -512,9 +575,9 @@ export function App() {
       <PromptDialog
         open={dialog.kind === 'slot-label'}
         onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
-        title="Nombre visible del boton"
-        description="Solo cambia lo que se muestra en este boton, no el nombre del audio."
-        label="Etiqueta"
+        title={t('dialog.slotLabelTitle')}
+        description={t('dialog.slotLabelDescription')}
+        label={t('dialog.slotLabelField')}
         initialValue={
           dialog.kind === 'slot-label'
             ? (dialog.slot.customLabel ?? dialog.slot.sound?.name ?? '')
@@ -534,16 +597,16 @@ export function App() {
       <VolumeDialog
         open={dialog.kind === 'slot-volume'}
         onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
-        title="Volumen del boton"
-        description="Solo cambia como suena en este boton."
+        title={t('dialog.slotVolumeTitle')}
+        description={t('dialog.slotVolumeDescription')}
         value={dialog.kind === 'slot-volume' ? dialog.slot.customVolume : null}
         inheritedVolume={
           dialog.kind === 'slot-volume'
             ? (dialog.slot.sound?.customVolume ?? masterVolume)
             : masterVolume
         }
-        inheritLabel="Usar el volumen del audio"
-        inheritHint="Al desactivarlo, este boton queda fijo en el valor que elijas, aunque el audio suene distinto en otros botones."
+        inheritLabel={t('dialog.followSound')}
+        inheritHint={t('dialog.followSoundHint')}
         onConfirm={(volume) => {
           if (dialog.kind === 'slot-volume') {
             slotMutations.setVolume.mutate({
@@ -591,6 +654,29 @@ export function App() {
               .catch(() => undefined);
           }
           setDialog({ kind: 'none' });
+        }}
+      />
+
+      <ConfirmDialog
+        open={dialog.kind === 'download-for-image'}
+        onOpenChange={(open) => !open && setDialog({ kind: 'none' })}
+        title={t('dialog.downloadForImageTitle')}
+        description={
+          dialog.kind === 'download-for-image'
+            ? t('dialog.downloadForImageDescription', { name: dialog.name })
+            : ''
+        }
+        confirmLabel={t('dialog.downloadForImageConfirm')}
+        onConfirm={() => {
+          if (dialog.kind !== 'download-for-image') return;
+          const { providerId, remoteId, image } = dialog;
+
+          library.download
+            .mutateAsync({ providerId, remoteId })
+            .then((sound) => library.setImage.mutateAsync({ soundId: sound.id, path: image }))
+            .catch(() => {
+              // Ya lo informa la mutacion que fallo.
+            });
         }}
       />
 

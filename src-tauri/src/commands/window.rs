@@ -30,6 +30,31 @@ pub fn focus_main_window(app: AppHandle) -> AppResult<()> {
     overlay::focus_main_window(&app)
 }
 
+/// Abre el overlay para arrastrarlo a la posicion que el usuario quiera (§16).
+#[tauri::command(async)]
+pub fn begin_overlay_placement(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    overlay::begin_placement(&app, &state.overlay)
+}
+
+#[tauri::command(async)]
+pub fn save_overlay_placement(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<crate::domain::settings::OverlayPosition> {
+    overlay::save_placement(&app, &state.overlay)
+}
+
+#[tauri::command(async)]
+pub fn cancel_overlay_placement(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    overlay::cancel_placement(&app, &state.overlay)
+}
+
+/// Vuelve al centrado automatico, olvidando la posicion elegida.
+#[tauri::command(async)]
+pub fn clear_overlay_placement(app: AppHandle) -> AppResult<()> {
+    overlay::clear_placement(&app)
+}
+
 /// Estado inicial completo. La interfaz lo pide una sola vez al arrancar en
 /// lugar de encadenar cinco llamadas.
 #[derive(serde::Serialize)]

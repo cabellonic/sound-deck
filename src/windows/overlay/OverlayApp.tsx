@@ -1,10 +1,13 @@
-import { ChevronLeft, ChevronRight, Square, X } from 'lucide-react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
+import { ChevronLeft, ChevronRight, Move, Square, X } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { onAppEvent } from '@/lib/events';
 import * as ipc from '@/lib/ipc';
 import { cn, formatDuration } from '@/lib/utils';
 import { useSlotKeys } from '@/features/useSlotKeys';
+import { resolveLocale } from '@/i18n';
+import { useTranslator } from '@/i18n/useTranslation';
 import type { AppSettings, PageSummary, SlotNumber, SoundPage } from '@/types/domain';
 
 /**
@@ -14,6 +17,56 @@ import type { AppSettings, PageSummary, SlotNumber, SoundPage } from '@/types/do
  * instantaneo. Mientras tiene el foco captura las teclas 1 a 9, que por eso no
  * llegan al juego que estaba adelante.
  */
+/**
+ * Barra que aparece solo mientras se elige donde va el overlay.
+ *
+ * Arrastrar la ventana lo hace el sistema a traves de `startDragging`: el
+ * overlay no tiene barra de titulo, asi que sin esto no habria de donde
+ * agarrarlo.
+ */
+function PlacementBar({ t }: { t: ReturnType<typeof useTranslator>['t'] }) {
+  const [dragging, setDragging] = useState(false);
+
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-accent bg-accent-soft p-2">
+      <div
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          setDragging(true);
+          void getCurrentWindow()
+            .startDragging()
+            .catch(() => undefined)
+            .finally(() => setDragging(false));
+        }}
+        className={cn(
+          'flex select-none items-center gap-2 rounded px-1 py-0.5 text-[11px] text-fg-default',
+          dragging ? 'cursor-grabbing' : 'cursor-grab',
+        )}
+      >
+        <Move className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span>{t('overlay.placementHint')}</span>
+      </div>
+
+      <div className="flex items-center justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={() => void ipc.cancelOverlayPlacement().catch(() => undefined)}
+          className="rounded px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg-default"
+        >
+          {t('common.cancel')}
+        </button>
+        <button
+          type="button"
+          onClick={() => void ipc.saveOverlayPlacement().catch(() => undefined)}
+          className="rounded bg-accent px-2 py-1 text-[11px] font-medium text-surface-0 transition-colors hover:bg-accent-strong"
+        >
+          {t('overlay.placementSave')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function OverlayApp() {
   const [page, setPage] = useState<SoundPage | null>(null);
   const [pages, setPages] = useState<PageSummary[]>([]);
@@ -21,6 +74,7 @@ export function OverlayApp() {
   const [visible, setVisible] = useState(false);
   const [flashSlot, setFlashSlot] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [placing, setPlacing] = useState(false);
 
   const refresh = useCallback(async (pageId?: string) => {
     try {
@@ -50,6 +104,7 @@ export function OverlayApp() {
       onAppEvent('page-changed', () => void refresh()),
       onAppEvent('slot-changed', () => void refresh(page?.id)),
       onAppEvent('settings-changed', (next) => setSettings(next)),
+      onAppEvent('overlay-placement-changed', (payload) => setPlacing(payload.placing)),
     ];
 
     return () => {
@@ -80,7 +135,8 @@ export function OverlayApp() {
 
   const play = useCallback(
     (slotNumber: SlotNumber) => {
-      if (!page) return;
+      // Colocando el overlay, un clic o una tecla solo lo estan arrastrando.
+      if (!page || placing) return;
 
       const slot = page.slots.find((candidate) => candidate.slotNumber === slotNumber);
       if (!slot?.sound) return;
@@ -95,17 +151,23 @@ export function OverlayApp() {
         })
         .catch((caught: unknown) => setError(ipc.errorMessage(caught)));
     },
-    [page, settings, close],
+    [page, settings, close, placing],
   );
 
+  // El hook sigue activo mientras se coloca para que Escape cancele; lo que no
+  // suena es `play`, que se guarda solo.
   useSlotKeys({
     enabled: true,
     allowRepeat: settings?.shortcuts.allowKeyRepeat ?? false,
     onSlot: play,
     onPrevPage: () => changePage(-1),
     onNextPage: () => changePage(1),
-    onEscape: close,
+    onEscape: placing ? () => void ipc.cancelOverlayPlacement().catch(() => undefined) : close,
   });
+
+  // El overlay lee la configuracion por su cuenta: no monta el cliente de
+  // queries, asi que resuelve el idioma a mano en vez de usar `useTranslation`.
+  const { t } = useTranslator(resolveLocale(settings?.general.language));
 
   const index = page ? pages.findIndex((candidate) => candidate.id === page.id) : -1;
 
@@ -117,15 +179,17 @@ export function OverlayApp() {
           'bg-surface-1/95 p-3 shadow-2xl backdrop-blur',
         )}
         role="dialog"
-        aria-label="Overlay de Sound Deck"
+        aria-label={t('overlay.title')}
         aria-live="polite"
       >
+        {placing ? <PlacementBar t={t} /> : null}
+
         <header className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => changePage(-1)}
             disabled={pages.length <= 1}
-            aria-label="Pagina anterior"
+            aria-label={t('soundboard.previousPage')}
             className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg-default disabled:opacity-40"
           >
             <ChevronLeft className="h-4 w-4" aria-hidden />
@@ -133,7 +197,7 @@ export function OverlayApp() {
 
           <div className="min-w-0 flex-1 text-center">
             <p className="truncate text-sm font-medium text-fg-default">
-              {page?.name ?? 'Sin pagina'}
+              {page?.name ?? t('overlay.noPage')}
             </p>
             <p className="font-mono text-[10px] tabular-nums text-fg-subtle">
               {index >= 0 ? index + 1 : 0} / {pages.length}
@@ -144,7 +208,7 @@ export function OverlayApp() {
             type="button"
             onClick={() => changePage(1)}
             disabled={pages.length <= 1}
-            aria-label="Pagina siguiente"
+            aria-label={t('soundboard.nextPage')}
             className="rounded p-1 text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg-default disabled:opacity-40"
           >
             <ChevronRight className="h-4 w-4" aria-hidden />
@@ -153,7 +217,7 @@ export function OverlayApp() {
           <button
             type="button"
             onClick={close}
-            aria-label="Cerrar overlay"
+            aria-label={t('overlay.close')}
             className="rounded p-1 text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg-default"
           >
             <X className="h-4 w-4" aria-hidden />
@@ -166,7 +230,7 @@ export function OverlayApp() {
           </p>
         ) : null}
 
-        <div className="grid grid-cols-3 gap-1.5" role="group" aria-label="Botones de la pagina">
+        <div className="grid grid-cols-3 gap-1.5" role="group" aria-label={t('overlay.buttons')}>
           {(page?.slots ?? []).map((slot) => {
             const label = slot.customLabel ?? slot.sound?.name ?? null;
             const duration = formatDuration(slot.sound?.durationMs);
@@ -182,7 +246,11 @@ export function OverlayApp() {
                 type="button"
                 onClick={() => play(slot.slotNumber)}
                 disabled={!label}
-                aria-label={`Boton ${slot.slotNumber}. ${label ?? 'Sin asignar'}`}
+                aria-label={t('slot.label', {
+                  number: slot.slotNumber,
+                  name: label ?? t('slot.unassigned'),
+                  state: '',
+                })}
                 className={cn(
                   'relative flex aspect-[4/3] flex-col justify-between overflow-hidden rounded-md border p-1.5 text-left transition-colors',
                   label

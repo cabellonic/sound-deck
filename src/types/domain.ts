@@ -33,20 +33,6 @@ export const NORMALIZED_CATEGORIES: readonly NormalizedCategory[] = [
   'uncategorized',
 ] as const;
 
-export const CATEGORY_LABELS: Record<NormalizedCategory, string> = {
-  memes: 'Memes',
-  reactions: 'Reacciones',
-  games: 'Juegos',
-  anime: 'Anime',
-  movies_tv: 'Cine y TV',
-  music: 'Musica',
-  sound_effects: 'Efectos',
-  voices: 'Voces',
-  sports: 'Deportes',
-  other: 'Otros',
-  uncategorized: 'Sin categoria',
-};
-
 export type SoundSource =
   { type: 'local_import' } | { type: 'provider'; providerId: string; remoteId: string };
 
@@ -86,6 +72,15 @@ export interface Sound {
   /** `false` cuando el archivo administrado ya no esta en disco. */
   fileAvailable: boolean;
   assignedSlotCount: number;
+  /**
+   * El unico boton que lo usa, cuando `assignedSlotCount === 1`.
+   *
+   * Solo lo completa la busqueda de la biblioteca, que es donde se muestra; un
+   * sonido que llega dentro de un slot no lo trae.
+   */
+  assignedSlot: SoundUsage | null;
+  /** Sonoridad medida en LUFS. `null` si todavia no se midio. */
+  loudnessLufs: number | null;
 }
 
 export type SlotNumber = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
@@ -126,6 +121,8 @@ export interface GeneralSettings {
   closeToTray: boolean;
   showNotifications: boolean;
   overlayOnActiveMonitor: boolean;
+  /** Posicion elegida a mano, en pixeles fisicos. `null` centra automaticamente. */
+  overlayPosition: { x: number; y: number } | null;
   closeOverlayAfterPlay: boolean;
   closeOverlayOnBlur: boolean;
   rememberLastPage: boolean;
@@ -143,6 +140,10 @@ export interface AudioSettings {
   playbackMode: PlaybackMode;
   restartSameSound: boolean;
   maxDownloadBytes: number;
+  /** Igualar el volumen entre audios con la sonoridad medida. */
+  normalizeVolume: boolean;
+  /** Sonoridad objetivo en LUFS cuando la normalizacion esta activa. */
+  targetLufs: number;
 }
 
 export type ShortcutAction = 'toggle_overlay' | 'stop_all' | 'prev_page' | 'next_page';
@@ -154,9 +155,21 @@ export interface ShortcutBinding {
   scope: ShortcutScope;
 }
 
+export type SlotModifier = 'ctrl_alt' | 'ctrl_shift' | 'alt_shift';
+
+export const SLOT_MODIFIERS: readonly SlotModifier[] = ['ctrl_alt', 'ctrl_shift', 'alt_shift'];
+
+/** Prefijo en el formato de Tauri, espejo de `SlotModifier::prefix` en Rust. */
+export const SLOT_MODIFIER_PREFIX: Record<SlotModifier, string> = {
+  ctrl_alt: 'Ctrl+Alt',
+  ctrl_shift: 'Ctrl+Shift',
+  alt_shift: 'Alt+Shift',
+};
+
 export interface ShortcutSettings {
   bindings: ShortcutBinding[];
   globalSlotPlayback: boolean;
+  slotModifier: SlotModifier;
   allowKeyRepeat: boolean;
 }
 
@@ -277,6 +290,10 @@ export interface ProviderStatus {
   supportsPreview: boolean;
   supportsDownload: boolean;
   ready: boolean;
+  /** Si puede conectar una cuenta por OAuth2 para bajar el archivo original. */
+  supportsOauth: boolean;
+  hasClientId: boolean;
+  accountConnected: boolean;
 }
 
 export interface LibraryStorage {
@@ -344,10 +361,3 @@ export interface AppError {
   recoverable: boolean;
   details?: Record<string, string>;
 }
-
-export const SHORTCUT_ACTION_LABELS: Record<ShortcutAction, string> = {
-  toggle_overlay: 'Abrir/cerrar overlay',
-  stop_all: 'Detener todos los sonidos',
-  prev_page: 'Pagina anterior',
-  next_page: 'Pagina siguiente',
-};

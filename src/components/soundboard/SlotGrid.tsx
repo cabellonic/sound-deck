@@ -1,6 +1,7 @@
 import { useCallback, useRef } from 'react';
 
 import type { DragPayload } from '@/lib/drag';
+import { useTranslation } from '@/i18n/useTranslation';
 import { cn } from '@/lib/utils';
 import type { SlotNumber, Sound, SoundPage, SoundSlot } from '@/types/domain';
 
@@ -30,6 +31,7 @@ export interface SlotGridProps {
  * funcionen tambien sin foco en un boton.
  */
 export function SlotGrid(props: SlotGridProps) {
+  const { t } = useTranslation();
   const { page, playingSoundIds, slotDownloads } = props;
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -77,7 +79,7 @@ export function SlotGrid(props: SlotGridProps) {
     <div
       ref={gridRef}
       role="group"
-      aria-label={`Botonera de la pagina ${page.name}`}
+      aria-label={t('soundboard.label', { page: page.name })}
       onKeyDown={handleKeyDown}
       className={cn('grid grid-cols-3 gap-2')}
     >

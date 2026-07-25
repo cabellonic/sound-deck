@@ -41,7 +41,24 @@ const MIGRATIONS: &[Migration] = &[
         sql: include_str!("../../migrations/003_sound_image.sql"),
         rebuilds_tables: false,
     },
+    Migration {
+        version: 4,
+        name: "default_shortcuts",
+        sql: include_str!("../../migrations/004_default_shortcuts.sql"),
+        rebuilds_tables: false,
+    },
+    Migration {
+        version: 5,
+        name: "loudness",
+        sql: include_str!("../../migrations/005_loudness.sql"),
+        rebuilds_tables: false,
+    },
 ];
+
+/// Version de esquema mas alta que esta version de la aplicacion entiende.
+pub fn latest_version() -> i64 {
+    MIGRATIONS.last().map(|m| m.version).unwrap_or(0)
+}
 
 /// Aplica todas las migraciones pendientes. Devuelve la version final.
 pub fn run(connection: &mut Connection) -> AppResult<i64> {
@@ -292,6 +309,66 @@ mod tests {
             .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
             .unwrap();
         assert_eq!(activas, 1);
+    }
+
+    /// Cambiar los atajos predeterminados tiene que alcanzar a quien ya tenia
+    /// la configuracion guardada, pero sin pisarle los suyos.
+    #[test]
+    fn los_atajos_viejos_se_actualizan_solo_si_nadie_los_toco() {
+        let mut connection = Connection::open_in_memory().unwrap();
+        run_hasta(&mut connection, 3);
+
+        let guardar = |connection: &Connection, json: &str| {
+            connection
+                .execute(
+                    "INSERT INTO settings (section, value_json, updated_at)
+                     VALUES ('shortcuts', ?1, 'now')
+                     ON CONFLICT(section) DO UPDATE SET value_json = excluded.value_json",
+                    [json],
+                )
+                .unwrap();
+        };
+        let leer = |connection: &Connection| -> String {
+            connection
+                .query_row(
+                    "SELECT value_json FROM settings WHERE section = 'shortcuts'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+
+        guardar(
+            &connection,
+            r#"{"bindings":[{"action":"toggle_overlay","accelerator":"Ctrl+Alt+Space","scope":"global"},{"action":"stop_all","accelerator":"Ctrl+Alt+0","scope":"global"}]}"#,
+        );
+
+        run(&mut connection).unwrap();
+
+        let migrado = leer(&connection);
+        assert!(migrado.contains(r#""accelerator":"Alt+Home""#), "{migrado}");
+        assert!(migrado.contains(r#""accelerator":"Alt+End""#), "{migrado}");
+
+        // Un atajo elegido a mano no se toca, ni siquiera si es el viejo
+        // predeterminado de la otra accion.
+        let mut otra = Connection::open_in_memory().unwrap();
+        run_hasta(&mut otra, 3);
+        guardar(
+            &otra,
+            r#"{"bindings":[{"action":"toggle_overlay","accelerator":"Ctrl+Shift+M","scope":"global"},{"action":"stop_all","accelerator":"Ctrl+Alt+Space","scope":"global"}]}"#,
+        );
+
+        run(&mut otra).unwrap();
+
+        let intacto = leer(&otra);
+        assert!(
+            intacto.contains(r#""accelerator":"Ctrl+Shift+M""#),
+            "{intacto}"
+        );
+        assert!(
+            intacto.contains(r#""accelerator":"Ctrl+Alt+Space""#),
+            "{intacto}"
+        );
     }
 
     #[test]

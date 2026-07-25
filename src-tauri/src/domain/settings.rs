@@ -26,6 +26,18 @@ pub enum ThemePreference {
     Light,
 }
 
+/// Posicion fija del overlay, en pixeles fisicos de escritorio.
+///
+/// Cuando esta puesta manda sobre el centrado automatico: el usuario ya dijo
+/// donde lo quiere. Se guarda en fisicos y no en logicos porque es lo que
+/// entiende `set_position` y lo unico estable si cambia el escalado.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayPosition {
+    pub x: i32,
+    pub y: i32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct GeneralSettings {
@@ -34,6 +46,8 @@ pub struct GeneralSettings {
     pub close_to_tray: bool,
     pub show_notifications: bool,
     pub overlay_on_active_monitor: bool,
+    /// Posicion elegida a mano. `None` deja el centrado automatico.
+    pub overlay_position: Option<OverlayPosition>,
     pub close_overlay_after_play: bool,
     pub close_overlay_on_blur: bool,
     pub remember_last_page: bool,
@@ -53,6 +67,7 @@ impl Default for GeneralSettings {
             close_to_tray: true,
             show_notifications: true,
             overlay_on_active_monitor: true,
+            overlay_position: None,
             close_overlay_after_play: true,
             close_overlay_on_blur: true,
             remember_last_page: true,
@@ -78,6 +93,13 @@ pub struct AudioSettings {
     pub restart_same_sound: bool,
     /// Limite de tamano para descargas, en bytes.
     pub max_download_bytes: u64,
+    /// Igualar el volumen entre audios usando la sonoridad medida (§18).
+    ///
+    /// Apagada por defecto: prenderla cambia como suena toda la biblioteca, y
+    /// esa no es una decision que corresponda tomar por el usuario.
+    pub normalize_volume: bool,
+    /// Sonoridad objetivo en LUFS cuando la normalizacion esta activa.
+    pub target_lufs: f32,
 }
 
 impl Default for AudioSettings {
@@ -90,6 +112,8 @@ impl Default for AudioSettings {
             playback_mode: PlaybackMode::Interrupt,
             restart_same_sound: true,
             max_download_bytes: 25 * 1024 * 1024,
+            normalize_volume: false,
+            target_lufs: crate::audio::loudness::DEFAULT_TARGET_LUFS,
         }
     }
 }
@@ -148,12 +172,51 @@ pub struct ShortcutBinding {
     pub scope: ShortcutScope,
 }
 
+/// Modificador con el que se registran los 1-9 globales.
+///
+/// Es una lista cerrada y no texto libre porque estos nueve atajos se quedan
+/// con su combinacion en todo el sistema: conviene que sean combinaciones que
+/// nadie escribe sin querer. Las teclas sueltas no son una opcion, secuestrarian
+/// los numeros en cualquier programa.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SlotModifier {
+    #[default]
+    CtrlAlt,
+    CtrlShift,
+    AltShift,
+}
+
+impl SlotModifier {
+    pub const ALL: [SlotModifier; 3] = [
+        SlotModifier::CtrlAlt,
+        SlotModifier::CtrlShift,
+        SlotModifier::AltShift,
+    ];
+
+    /// Prefijo ya en la forma canonica de `normalize_accelerator`.
+    pub fn prefix(self) -> &'static str {
+        match self {
+            SlotModifier::CtrlAlt => "Ctrl+Alt",
+            SlotModifier::CtrlShift => "Ctrl+Shift",
+            SlotModifier::AltShift => "Alt+Shift",
+        }
+    }
+
+    /// Acelerador del boton `slot`, que va de 1 a 9.
+    pub fn accelerator_for(self, slot: u8) -> String {
+        format!("{}+{slot}", self.prefix())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ShortcutSettings {
     pub bindings: Vec<ShortcutBinding>,
     /// Reproduccion global de 1-9 sin overlay. Desactivada por defecto (§43).
     pub global_slot_playback: bool,
+    /// Modificador de los 1-9 globales. Solo se usa con `global_slot_playback`.
+    pub slot_modifier: SlotModifier,
     /// Repetir al mantener una tecla presionada dentro del overlay.
     pub allow_key_repeat: bool,
 }
@@ -163,6 +226,7 @@ impl Default for ShortcutSettings {
         Self {
             bindings: default_bindings(),
             global_slot_playback: false,
+            slot_modifier: SlotModifier::default(),
             allow_key_repeat: false,
         }
     }
@@ -173,12 +237,12 @@ pub fn default_bindings() -> Vec<ShortcutBinding> {
     vec![
         ShortcutBinding {
             action: ShortcutAction::ToggleOverlay,
-            accelerator: "Ctrl+Alt+Space".to_string(),
+            accelerator: "Alt+Home".to_string(),
             scope: ShortcutScope::Global,
         },
         ShortcutBinding {
             action: ShortcutAction::StopAll,
-            accelerator: "Ctrl+Alt+0".to_string(),
+            accelerator: "Alt+End".to_string(),
             scope: ShortcutScope::Global,
         },
         ShortcutBinding {
@@ -291,11 +355,11 @@ mod tests {
             settings
                 .shortcuts
                 .accelerator_for(ShortcutAction::ToggleOverlay),
-            Some("Ctrl+Alt+Space")
+            Some("Alt+Home")
         );
         assert_eq!(
             settings.shortcuts.accelerator_for(ShortcutAction::StopAll),
-            Some("Ctrl+Alt+0")
+            Some("Alt+End")
         );
     }
 
@@ -336,6 +400,31 @@ mod tests {
         assert_eq!(effective_preview_volume(0.20, None), 0.20);
         // Con volumen propio se escucha como va a sonar de verdad.
         assert_eq!(effective_preview_volume(0.20, Some(0.15)), 0.15);
+    }
+
+    #[test]
+    fn los_1_9_globales_siempre_llevan_modificador() {
+        // Sin modificador secuestrarian los numeros en todo el sistema, asi que
+        // el prefijo no es opcional en ninguna de las opciones ofrecidas.
+        for modifier in SlotModifier::ALL {
+            for slot in 1..=9u8 {
+                let accelerator = modifier.accelerator_for(slot);
+                assert!(accelerator.ends_with(&format!("+{slot}")), "{accelerator}");
+                assert!(
+                    crate::shortcuts::validate_accelerator(&accelerator, ShortcutScope::Global)
+                        .is_ok(),
+                    "{accelerator} deberia ser un atajo global valido"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn la_reproduccion_global_viene_apagada_con_ctrl_alt() {
+        let settings = ShortcutSettings::default();
+        assert!(!settings.global_slot_playback);
+        assert_eq!(settings.slot_modifier, SlotModifier::CtrlAlt);
+        assert_eq!(settings.slot_modifier.accelerator_for(1), "Ctrl+Alt+1");
     }
 
     #[test]

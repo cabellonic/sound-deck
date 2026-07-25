@@ -10,7 +10,7 @@ use crate::events::{
 };
 use crate::library::{self, IngestRequest, SourceHandling};
 use crate::providers::registry::ProviderStatus;
-use crate::providers::{RemoteSound, SearchOptions};
+use crate::providers::{oauth, RemoteSound, SearchOptions};
 use crate::state::AppState;
 
 #[tauri::command(async)]
@@ -42,6 +42,118 @@ pub fn set_provider_api_key(
         return Err(AppError::not_found("Ese proveedor no existe."));
     }
     provider_settings::set_api_key(&state.db, &provider_id, api_key.as_deref())?;
+    state.providers.statuses(&state.db)
+}
+
+/// Guarda el client id de OAuth2 del proveedor.
+#[tauri::command(async)]
+pub fn set_provider_client_id(
+    state: State<'_, AppState>,
+    provider_id: String,
+    client_id: Option<String>,
+) -> AppResult<Vec<ProviderStatus>> {
+    if state.providers.get(&provider_id).is_none() {
+        return Err(AppError::not_found("Ese proveedor no existe."));
+    }
+    provider_settings::set_client_id(&state.db, &provider_id, client_id.as_deref())?;
+    state.providers.statuses(&state.db)
+}
+
+/// URL a la que hay que mandar al usuario para autorizar la aplicacion.
+///
+/// El `state` vuelve junto a la URL para que la interfaz pueda mostrarlo si
+/// hace falta; en un flujo donde el codigo se pega a mano no hay nada que
+/// validar automaticamente.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthorizationRequest {
+    pub url: String,
+    pub state: String,
+}
+
+#[tauri::command(async)]
+pub fn begin_provider_authorization(
+    state: State<'_, AppState>,
+    provider_id: String,
+) -> AppResult<AuthorizationRequest> {
+    let record = provider_settings::get(&state.db, &provider_id)?;
+    let client_id = record
+        .and_then(|record| record.config.client_id)
+        .ok_or_else(|| {
+            AppError::validation(
+                "Falta el Client id de la credencial. Copialo desde tu aplicacion de Freesound.",
+            )
+        })?;
+
+    let nonce = crate::domain::new_id();
+    Ok(AuthorizationRequest {
+        url: oauth::authorize_url(&client_id, &nonce),
+        state: nonce,
+    })
+}
+
+/// Canjea el codigo que el usuario copio de la pagina de Freesound.
+#[tauri::command]
+pub async fn complete_provider_authorization(
+    app: AppHandle,
+    provider_id: String,
+    code: String,
+) -> AppResult<Vec<ProviderStatus>> {
+    let code = code.trim().to_string();
+    if code.is_empty() {
+        return Err(AppError::validation("Pega el codigo de autorizacion."));
+    }
+
+    let (client, db, providers, client_id, secret) = {
+        let state = app.state::<AppState>();
+        let record = provider_settings::get(&state.db, &provider_id)?;
+        let config = record.map(|record| record.config).unwrap_or_default();
+
+        let client_id = config.client_id.ok_or_else(|| {
+            AppError::validation("Falta el Client id de la credencial de Freesound.")
+        })?;
+        let secret = config.api_key.ok_or_else(|| {
+            AppError::validation("Falta la API key, que Freesound usa tambien como Client secret.")
+        })?;
+
+        (
+            state.http.clone(),
+            state.db.clone(),
+            state.providers.clone(),
+            client_id,
+            secret,
+        )
+    };
+
+    let tokens = oauth::exchange_code(&client, &client_id, &secret, &code)
+        .await
+        .map_err(|error| {
+            let technical = error.to_string();
+            let message = match error {
+                // Un rechazo aca casi nunca es la credencial: es el codigo, que
+                // dura diez minutos y sirve una sola vez.
+                crate::providers::ProviderError::Unauthorized => {
+                    "El codigo no es valido o ya vencio. Duran 10 minutos y sirven una sola vez: volve a autorizar."
+                        .to_string()
+                }
+                other => other.user_message("Freesound"),
+            };
+            AppError::new(ErrorKind::Provider, message).with_technical(technical)
+        })?;
+
+    provider_settings::set_oauth_tokens(&db, &provider_id, Some(tokens))?;
+    tracing::info!(provider_id, "cuenta conectada por OAuth2");
+    providers.statuses(&db)
+}
+
+/// Desconecta la cuenta y borra los tokens guardados.
+#[tauri::command(async)]
+pub fn disconnect_provider_account(
+    state: State<'_, AppState>,
+    provider_id: String,
+) -> AppResult<Vec<ProviderStatus>> {
+    provider_settings::set_oauth_tokens(&state.db, &provider_id, None)?;
+    tracing::info!(provider_id, "cuenta desconectada");
     state.providers.statuses(&state.db)
 }
 
@@ -240,7 +352,7 @@ async fn download_remote_inner(
     remote_id: &str,
     operation_id: &str,
 ) -> AppResult<Sound> {
-    let (provider, context, remote, client, max_bytes) = {
+    let (provider, remote, client, max_bytes) = {
         let state = app.state::<AppState>();
         let provider = state
             .providers
@@ -249,11 +361,9 @@ async fn download_remote_inner(
         let remote = state.remote_sound(provider_id, remote_id).ok_or_else(|| {
             AppError::not_found("Ese resultado ya no esta disponible. Repeti la busqueda.")
         })?;
-        let context = state.providers.context_for(&state.db, provider_id)?;
         let settings = state.settings()?;
         (
             provider,
-            context,
             remote,
             state.http.clone(),
             settings.audio.max_download_bytes,
@@ -273,6 +383,18 @@ async fn download_remote_inner(
             }
         }
     }
+
+    // Se resuelve aca y no dentro del bloque de arriba porque renovar el token
+    // OAuth2 es asincronico y el estado de Tauri no cruza un `await`.
+    let context = {
+        let (providers, db) = {
+            let state = app.state::<AppState>();
+            (state.providers.clone(), state.db.clone())
+        };
+        providers
+            .download_context(&db, &client, provider_id)
+            .await?
+    };
 
     let resolved = provider
         .resolve_download(&remote, &context)
@@ -315,9 +437,10 @@ async fn download_remote_inner(
         }
     };
 
-    crate::downloads::download_to_temp(
+    crate::downloads::download_to_temp_with_headers(
         &client,
         &resolved.url,
+        &resolved.headers,
         &temp_path,
         max_bytes,
         Some(&progress),

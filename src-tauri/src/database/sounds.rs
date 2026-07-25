@@ -8,7 +8,7 @@ use crate::domain::category::normalize_text;
 use crate::domain::sound::{LibraryFilter, SoundSortOrder};
 use crate::domain::{
     new_id, now_timestamp, NormalizedCategory, Sound, SoundLicense, SoundQuery, SoundRecord,
-    SoundSource,
+    SoundSource, SoundUsage,
 };
 use crate::errors::{AppError, AppResult};
 
@@ -40,7 +40,7 @@ const COLUMNS: &str = "id, name, original_name, internal_filename, file_path, co
      mime_type, file_extension, file_size_bytes, duration_ms, source_type, provider_id,
      remote_id, source_page_url, download_url_reference, provider_category, normalized_category,
      license_code, license_name, license_url, attribution, custom_volume, image_path, play_count,
-     last_played_at, created_at, updated_at";
+     last_played_at, created_at, updated_at, loudness_lufs, peak_amplitude";
 
 fn row_to_record(row: &Row<'_>) -> rusqlite::Result<SoundRecord> {
     Ok(SoundRecord {
@@ -71,6 +71,8 @@ fn row_to_record(row: &Row<'_>) -> rusqlite::Result<SoundRecord> {
         last_played_at: row.get("last_played_at")?,
         created_at: row.get("created_at")?,
         updated_at: row.get("updated_at")?,
+        loudness_lufs: row.get("loudness_lufs")?,
+        peak_amplitude: row.get("peak_amplitude")?,
     })
 }
 
@@ -256,9 +258,59 @@ pub fn find_by_remote(
 
 fn hydrate(db: &Database, record: SoundRecord) -> AppResult<Sound> {
     let tags = tags_of(db, &record.id)?;
-    let assigned = assigned_slot_count(db, &record.id)?;
+    let (assigned, single) = assignment(db, &record.id)?;
     let available = Path::new(&record.file_path).is_file();
-    Ok(record.into_dto(tags, available, assigned))
+    Ok(record.into_dto(tags, available, assigned, single))
+}
+
+/// Guarda la sonoridad medida de un audio.
+pub fn save_loudness(
+    db: &Database,
+    sound_id: &str,
+    loudness: crate::audio::Loudness,
+) -> AppResult<()> {
+    let connection = db.lock();
+    connection.execute(
+        "UPDATE sounds SET loudness_lufs = ?1, peak_amplitude = ?2, updated_at = ?3 WHERE id = ?4",
+        params![loudness.lufs, loudness.peak, now_timestamp(), sound_id],
+    )?;
+    Ok(())
+}
+
+/// Sonoridad y pico de un audio, para calcular su ganancia al reproducirlo.
+pub fn loudness_of(db: &Database, sound_id: &str) -> AppResult<Option<crate::audio::Loudness>> {
+    let connection = db.lock();
+    let row: Option<(Option<f32>, Option<f32>)> = connection
+        .query_row(
+            "SELECT loudness_lufs, peak_amplitude FROM sounds WHERE id = ?1",
+            [sound_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
+
+    Ok(match row {
+        Some((Some(lufs), Some(peak))) => Some(crate::audio::Loudness { lufs, peak }),
+        _ => None,
+    })
+}
+
+/// Audios que todavia no tienen medicion, con su ruta en disco.
+pub fn pending_loudness(db: &Database) -> AppResult<Vec<(String, PathBuf)>> {
+    let connection = db.lock();
+    let mut statement = connection.prepare(
+        "SELECT id, file_path FROM sounds
+         WHERE loudness_lufs IS NULL OR peak_amplitude IS NULL
+         ORDER BY created_at",
+    )?;
+    let pending = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                PathBuf::from(row.get::<_, String>(1)?),
+            ))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    Ok(pending)
 }
 
 pub fn tags_of(db: &Database, sound_id: &str) -> AppResult<Vec<String>> {
@@ -279,6 +331,60 @@ pub fn assigned_slot_count(db: &Database, sound_id: &str) -> AppResult<i64> {
         |row| row.get(0),
     )?;
     Ok(count)
+}
+
+/// Lee el unico slot de la fila de `search`, que ya lo trajo en la consulta.
+///
+/// Solo tiene sentido con `assigned == 1`: con cero no hay nada y con dos o mas
+/// las columnas traen una asignacion cualquiera, que sola seria enganosa.
+fn single_usage(row: &Row<'_>, assigned: i64) -> rusqlite::Result<Option<SoundUsage>> {
+    if assigned != 1 {
+        return Ok(None);
+    }
+
+    let page_id: Option<String> = row.get("single_page_id")?;
+    let page_name: Option<String> = row.get("single_page_name")?;
+    let slot_number: Option<u8> = row.get("single_slot_number")?;
+
+    Ok(match (page_id, page_name, slot_number) {
+        (Some(page_id), Some(page_name), Some(slot_number)) => Some(SoundUsage {
+            page_id,
+            page_name,
+            slot_number,
+        }),
+        _ => None,
+    })
+}
+
+/// Cuantos slots usan el sonido y, cuando es exactamente uno, cual.
+///
+/// La biblioteca muestra "En Principal - boton 3" en vez de "En 1 boton", que
+/// no le dice nada a nadie. Con dos o mas asignaciones no vale la pena traer el
+/// detalle: la fila no tiene lugar para enumerarlas.
+fn assignment(db: &Database, sound_id: &str) -> AppResult<(i64, Option<SoundUsage>)> {
+    let count = assigned_slot_count(db, sound_id)?;
+    if count != 1 {
+        return Ok((count, None));
+    }
+
+    let connection = db.lock();
+    let single = connection
+        .query_row(
+            "SELECT p.id, p.name, sl.slot_number
+             FROM slots sl JOIN pages p ON p.id = sl.page_id
+             WHERE sl.sound_id = ?1",
+            [sound_id],
+            |row| {
+                Ok(SoundUsage {
+                    page_id: row.get(0)?,
+                    page_name: row.get(1)?,
+                    slot_number: row.get(2)?,
+                })
+            },
+        )
+        .optional()?;
+
+    Ok((count, single))
 }
 
 /// Busqueda local con filtros y orden (§9, §26).
@@ -360,6 +466,15 @@ pub fn search(db: &Database, query: &SoundQuery) -> AppResult<Vec<Sound>> {
     let sql = format!(
         "SELECT {COLUMNS},
                 (SELECT COUNT(*) FROM slots WHERE slots.sound_id = s.id) AS assigned_slots,
+                -- Donde esta asignado, para nombrarlo cuando esta en un solo
+                -- boton. Van como subconsultas y no como JOIN para no duplicar
+                -- filas cuando el audio esta en varios; con dos o mas se ignoran.
+                -- Las tres resuelven por `idx_slots_sound`.
+                (SELECT o.page_id FROM slots o WHERE o.sound_id = s.id LIMIT 1) AS single_page_id,
+                (SELECT p.name FROM slots o JOIN pages p ON p.id = o.page_id
+                  WHERE o.sound_id = s.id LIMIT 1) AS single_page_name,
+                (SELECT o.slot_number FROM slots o WHERE o.sound_id = s.id LIMIT 1)
+                    AS single_slot_number,
                 (SELECT COALESCE(GROUP_CONCAT(tag, char(31)), '')
                    FROM sound_tags WHERE sound_tags.sound_id = s.id) AS tag_list
          FROM sounds s
@@ -386,7 +501,7 @@ pub fn search(db: &Database, query: &SoundQuery) -> AppResult<Vec<Sound>> {
                 tags
             };
             let available = Path::new(&record.file_path).is_file();
-            Ok(record.into_dto(tags, available, assigned))
+            Ok(record.into_dto(tags, available, assigned, single_usage(row, assigned)?))
         })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
 
@@ -521,15 +636,6 @@ pub fn set_tags(db: &Database, sound_id: &str, tags: &[String]) -> AppResult<Sou
             .ok_or_else(|| AppError::not_found("Ese sonido ya no existe en la biblioteca."))?
     };
     rename(db, sound_id, &name)
-}
-
-/// Donde esta usado un sonido, para poder informarlo antes de borrar (§9).
-#[derive(Debug, Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SoundUsage {
-    pub page_id: String,
-    pub page_name: String,
-    pub slot_number: u8,
 }
 
 pub fn usage(db: &Database, sound_id: &str) -> AppResult<Vec<SoundUsage>> {
@@ -697,6 +803,61 @@ pub(crate) mod tests {
 
         let recuperado = find_by_id(&db, &creado.id).unwrap().unwrap();
         assert_eq!(recuperado.id, creado.id);
+    }
+
+    /// La biblioteca nombra el boton cuando el audio esta asignado a uno solo;
+    /// con dos o mas solo muestra la cantidad.
+    #[test]
+    fn informa_el_unico_boton_donde_esta_asignado() {
+        use crate::database::{pages, slots};
+        use crate::domain::SlotNumber;
+
+        let db = test_db();
+        let sonido = insert(&db, nuevo_sonido("Bruh", "hash-asignacion")).unwrap();
+        let pagina = pages::create(&db, "Memes").unwrap();
+
+        let buscar = || {
+            search(&db, &SoundQuery::default())
+                .unwrap()
+                .into_iter()
+                .find(|encontrado| encontrado.id == sonido.id)
+                .unwrap()
+        };
+
+        // Sin asignar no hay boton que nombrar.
+        let libre = buscar();
+        assert_eq!(libre.assigned_slot_count, 0);
+        assert_eq!(libre.assigned_slot, None);
+
+        slots::assign(&db, &pagina.id, SlotNumber::new(3).unwrap(), &sonido.id).unwrap();
+
+        let en_uno = buscar();
+        assert_eq!(en_uno.assigned_slot_count, 1);
+        let asignacion = en_uno.assigned_slot.unwrap();
+        assert_eq!(asignacion.page_name, "Memes");
+        assert_eq!(asignacion.slot_number, 3);
+        assert_eq!(asignacion.page_id, pagina.id);
+        // `find_by_id` resuelve lo mismo por su propio camino.
+        assert_eq!(
+            find_by_id(&db, &sonido.id)
+                .unwrap()
+                .unwrap()
+                .assigned_slot
+                .unwrap()
+                .slot_number,
+            3
+        );
+
+        slots::assign(&db, &pagina.id, SlotNumber::new(7).unwrap(), &sonido.id).unwrap();
+
+        // Con dos botones el detalle sobra: nombrar uno solo seria enganoso.
+        let en_dos = buscar();
+        assert_eq!(en_dos.assigned_slot_count, 2);
+        assert_eq!(en_dos.assigned_slot, None);
+        assert_eq!(
+            find_by_id(&db, &sonido.id).unwrap().unwrap().assigned_slot,
+            None
+        );
     }
 
     #[test]

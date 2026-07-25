@@ -121,6 +121,11 @@ pub fn save_output_device(
     Ok(audio)
 }
 
+/// Guarda la seccion general sin tocar el resto de la configuracion.
+pub fn save_general(db: &Database, general: &GeneralSettings) -> AppResult<()> {
+    write_section(db, SECTION_GENERAL, general)
+}
+
 /// Recuerda la ultima pagina activa (§43 "recordar ultima pagina").
 pub fn save_last_page(db: &Database, page_id: &str) -> AppResult<()> {
     let mut general: GeneralSettings = read_section(db, SECTION_GENERAL)?;

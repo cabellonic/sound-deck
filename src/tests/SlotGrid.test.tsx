@@ -1,11 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { SlotGrid } from '@/components/soundboard/SlotGrid';
-import { TooltipProvider } from '@/components/ui/primitives';
 
 import { makePage, makeSlot, makeSound } from './factories';
+import { renderWithProviders } from './renderApp';
 
 function renderGrid(overrides: Partial<Parameters<typeof SlotGrid>[0]> = {}) {
   const props = {
@@ -24,11 +24,7 @@ function renderGrid(overrides: Partial<Parameters<typeof SlotGrid>[0]> = {}) {
     ...overrides,
   };
 
-  const { container } = render(
-    <TooltipProvider>
-      <SlotGrid {...props} />
-    </TooltipProvider>,
-  );
+  const { container } = renderWithProviders(<SlotGrid {...props} />);
 
   return { ...props, container };
 }

@@ -9,28 +9,33 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/primitives';
 import { Button } from '@/components/ui/Button';
+import { categoryKey, type PlainKey } from '@/i18n';
+import { useTranslation } from '@/i18n/useTranslation';
 import { cn } from '@/lib/utils';
 import {
-  CATEGORY_LABELS,
   type LibraryFacets,
   type LibraryFilter,
   type NormalizedCategory,
   type SoundSortOrder,
 } from '@/types/domain';
 
-const SORT_LABELS: Record<SoundSortOrder, string> = {
-  relevance: 'Relevancia',
-  recent: 'Reciente',
-  most_played: 'Mas usado',
-  name: 'Nombre',
+const SORT_LABELS: Record<SoundSortOrder, PlainKey> = {
+  relevance: 'sort.relevance',
+  recent: 'sort.recent',
+  most_played: 'sort.mostPlayed',
+  name: 'sort.name',
 };
 
 /** Filtros rapidos siempre presentes. */
-const QUICK_FILTERS: Array<{ filter: LibraryFilter; label: string; icon: typeof LayoutGrid }> = [
-  { filter: { type: 'all' }, label: 'Todos', icon: LayoutGrid },
-  { filter: { type: 'recent' }, label: 'Recientes', icon: Clock },
-  { filter: { type: 'most_played' }, label: 'Mas usados', icon: Flame },
-  { filter: { type: 'unassigned' }, label: 'Sin asignar', icon: Unlink },
+const QUICK_FILTERS: Array<{
+  filter: LibraryFilter;
+  label: PlainKey;
+  icon: typeof LayoutGrid;
+}> = [
+  { filter: { type: 'all' }, label: 'filter.all', icon: LayoutGrid },
+  { filter: { type: 'recent' }, label: 'filter.recent', icon: Clock },
+  { filter: { type: 'most_played' }, label: 'filter.mostPlayed', icon: Flame },
+  { filter: { type: 'unassigned' }, label: 'filter.unassigned', icon: Unlink },
 ];
 
 function sameFilter(a: LibraryFilter, b: LibraryFilter): boolean {
@@ -54,6 +59,7 @@ export interface FilterBarProps {
  * Las categorias y proveedores solo aparecen si existen sonidos que los usan.
  */
 export function FilterBar({ filter, onFilterChange, sort, onSortChange, facets }: FilterBarProps) {
+  const { t } = useTranslation();
   const categories = (facets?.categories ?? []).filter(
     (facet) => facet.value !== 'uncategorized' && facet.count > 0,
   );
@@ -77,22 +83,22 @@ export function FilterBar({ filter, onFilterChange, sort, onSortChange, facets }
           )}
         >
           <Icon className="h-3 w-3" aria-hidden />
-          {label}
+          {t(label)}
         </button>
       ))}
 
       {hasDynamicFilters ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="ghost" aria-label="Mas filtros">
+            <Button size="sm" variant="ghost" aria-label={t('filter.moreLabel')}>
               <Filter className="h-3 w-3" aria-hidden />
-              Mas
+              {t('filter.more')}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
             {categories.length > 0 ? (
               <>
-                <DropdownMenuLabel>Categorias</DropdownMenuLabel>
+                <DropdownMenuLabel>{t('filter.categories')}</DropdownMenuLabel>
                 {categories.map((facet) => (
                   <DropdownMenuItem
                     key={facet.value}
@@ -103,7 +109,7 @@ export function FilterBar({ filter, onFilterChange, sort, onSortChange, facets }
                       })
                     }
                   >
-                    {CATEGORY_LABELS[facet.value as NormalizedCategory] ?? facet.value}
+                    {t(categoryKey(facet.value))}
                     <span className="ml-auto font-mono text-xs text-fg-subtle">{facet.count}</span>
                   </DropdownMenuItem>
                 ))}
@@ -112,7 +118,7 @@ export function FilterBar({ filter, onFilterChange, sort, onSortChange, facets }
 
             {uncategorized && uncategorized.count > 0 ? (
               <DropdownMenuItem onSelect={() => onFilterChange({ type: 'uncategorized' })}>
-                Sin categoria
+                {t('category.uncategorized')}
                 <span className="ml-auto font-mono text-xs text-fg-subtle">
                   {uncategorized.count}
                 </span>
@@ -122,7 +128,7 @@ export function FilterBar({ filter, onFilterChange, sort, onSortChange, facets }
             {providers.length > 0 ? (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuLabel>Proveedores</DropdownMenuLabel>
+                <DropdownMenuLabel>{t('filter.providers')}</DropdownMenuLabel>
                 {providers.map((facet) => (
                   <DropdownMenuItem
                     key={facet.value}
@@ -141,15 +147,19 @@ export function FilterBar({ filter, onFilterChange, sort, onSortChange, facets }
       <div className="ml-auto">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button size="sm" variant="ghost" aria-label={`Ordenar por ${SORT_LABELS[sort]}`}>
-              {SORT_LABELS[sort]}
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={t('filter.sortByValue', { value: t(SORT_LABELS[sort]) })}
+            >
+              {t(SORT_LABELS[sort])}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Ordenar por</DropdownMenuLabel>
+            <DropdownMenuLabel>{t('filter.sortBy')}</DropdownMenuLabel>
             {(Object.keys(SORT_LABELS) as SoundSortOrder[]).map((option) => (
               <DropdownMenuItem key={option} onSelect={() => onSortChange(option)}>
-                {SORT_LABELS[option]}
+                {t(SORT_LABELS[option])}
               </DropdownMenuItem>
             ))}
           </DropdownMenuContent>

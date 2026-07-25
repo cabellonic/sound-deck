@@ -22,6 +22,7 @@ import {
   Tooltip,
 } from '@/components/ui/primitives';
 import { isClickSuppressed, useDragSource, useDropTarget } from '@/features/dnd';
+import { useTranslation } from '@/i18n/useTranslation';
 import type { DragPayload } from '@/lib/drag';
 import { soundImageSrc } from '@/lib/ipc';
 import { cn, formatDuration, volumeToPercent } from '@/lib/utils';
@@ -59,6 +60,7 @@ export function SlotButton({
   onReveal,
   onShowDetails,
 }: SlotButtonProps) {
+  const { t } = useTranslation();
   const sound = slot.sound;
   const label = slot.customLabel ?? sound?.name ?? null;
   const duration = formatDuration(sound?.durationMs);
@@ -99,14 +101,14 @@ export function SlotButton({
   };
 
   const describedState = isDownloading
-    ? 'Descargando'
+    ? t('slot.downloading')
     : isBroken
-      ? 'Archivo no disponible'
+      ? t('slot.unavailable')
       : isPlaying
-        ? 'Reproduciendo'
+        ? t('slot.playing')
         : label
-          ? 'Asignado'
-          : 'Vacio';
+          ? t('slot.assigned')
+          : t('slot.empty');
 
   const button = (
     <button
@@ -115,7 +117,11 @@ export function SlotButton({
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       disabled={isDownloading}
-      aria-label={`Boton ${slot.slotNumber}. ${label ?? 'Sin asignar'}. ${describedState}.`}
+      aria-label={t('slot.label', {
+        number: slot.slotNumber,
+        name: label ?? t('slot.unassigned'),
+        state: describedState,
+      })}
       data-slot={slot.slotNumber}
       className={cn(
         'group relative flex aspect-square w-full flex-col justify-between overflow-hidden rounded-lg',
@@ -198,7 +204,7 @@ export function SlotButton({
                 : 'text-fg-subtle',
           )}
         >
-          {label ?? 'Vacio'}
+          {label ?? t('slot.empty')}
         </p>
         {duration && label ? (
           <p
@@ -210,7 +216,9 @@ export function SlotButton({
             {duration}
           </p>
         ) : null}
-        {isBroken ? <p className="mt-0.5 text-[11px] text-danger">Archivo faltante</p> : null}
+        {isBroken ? (
+          <p className="mt-0.5 text-[11px] text-danger">{t('slot.missingFile')}</p>
+        ) : null}
       </div>
 
       {isDownloading ? (
@@ -220,7 +228,7 @@ export function SlotButton({
           aria-valuenow={Math.round((downloadProgress ?? 0) * 100)}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label="Progreso de descarga"
+          aria-label={t('slot.downloadProgress')}
         >
           <div
             className="h-full bg-accent transition-[width]"
@@ -260,7 +268,7 @@ export function SlotButton({
             </ContextMenuItem>
             <ContextMenuItem onSelect={() => onPickImage(sound)}>
               <ImageIcon className="h-3.5 w-3.5" aria-hidden />
-              {sound.imagePath ? 'Cambiar imagen del audio' : 'Poner imagen al audio'}
+              {sound.imagePath ? t('slot.changeImage') : t('slot.setImage')}
             </ContextMenuItem>
             {sound.imagePath ? (
               <ContextMenuItem onSelect={() => onClearImage(sound)}>

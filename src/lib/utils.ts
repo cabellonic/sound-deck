@@ -1,6 +1,8 @@
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
+import type { PlainKey } from '@/i18n';
+
 /** Combina clases resolviendo conflictos de Tailwind. */
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
@@ -75,27 +77,60 @@ export function slotFromKey(code: string, key: string): number | null {
   return null;
 }
 
-/** Fecha relativa corta en espanol. */
-export function formatRelativeDate(iso: string | null): string {
-  if (!iso) return 'Nunca';
+/**
+ * Descompone una fecha en la clave de traduccion que le corresponde.
+ *
+ * La funcion no traduce: devuelve que decir y con que numero, para que el
+ * catalogo se quede con el texto y esto se quede con las cuentas.
+ */
+export type RelativeDate =
+  | { kind: 'never' }
+  | { kind: 'invalid' }
+  | { kind: 'now' }
+  | { kind: 'minutes' | 'hours' | 'days'; value: number }
+  | { kind: 'absolute'; value: string };
+
+export function relativeDate(iso: string | null, locale: string): RelativeDate {
+  if (!iso) return { kind: 'never' };
 
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return '—';
+  if (Number.isNaN(date.getTime())) return { kind: 'invalid' };
 
   const seconds = Math.round((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return 'Hace instantes';
-  if (seconds < 3600) return `Hace ${Math.floor(seconds / 60)} min`;
-  if (seconds < 86400) return `Hace ${Math.floor(seconds / 3600)} h`;
-  if (seconds < 604800) return `Hace ${Math.floor(seconds / 86400)} d`;
-  return date.toLocaleDateString('es');
+  if (seconds < 60) return { kind: 'now' };
+  if (seconds < 3600) return { kind: 'minutes', value: Math.floor(seconds / 60) };
+  if (seconds < 86400) return { kind: 'hours', value: Math.floor(seconds / 3600) };
+  if (seconds < 604800) return { kind: 'days', value: Math.floor(seconds / 86400) };
+  return { kind: 'absolute', value: date.toLocaleDateString(locale) };
 }
 
-/** Muestra un acelerador con simbolos compactos. */
-export function formatAccelerator(accelerator: string): string {
+/**
+ * Nombres de tecla que cambian con el idioma.
+ *
+ * Los modificadores no estan: `Ctrl`, `Alt`, `Shift` y `Win` se escriben igual
+ * en todos los idiomas que nos importan, y traducirlos solo daria lugar a que
+ * alguien invente una variante.
+ */
+const KEY_LABELS: Record<string, PlainKey> = {
+  space: 'key.space',
+  pageup: 'key.pageUp',
+  pagedown: 'key.pageDown',
+  home: 'key.home',
+  end: 'key.end',
+};
+
+/**
+ * Muestra un acelerador con nombres de tecla legibles.
+ *
+ * Recibe el traductor porque los nombres de tecla son texto de interfaz: en
+ * ingles la tecla `Home` no se llama "Inicio".
+ */
+export function formatAccelerator(accelerator: string, t: (key: PlainKey) => string): string {
   return accelerator
     .split('+')
     .map((part) => {
-      switch (part.toLowerCase()) {
+      const lower = part.toLowerCase();
+      switch (lower) {
         case 'ctrl':
           return 'Ctrl';
         case 'alt':
@@ -104,14 +139,10 @@ export function formatAccelerator(accelerator: string): string {
           return 'Shift';
         case 'super':
           return 'Win';
-        case 'space':
-          return 'Espacio';
-        case 'pageup':
-          return 'Re Pag';
-        case 'pagedown':
-          return 'Av Pag';
-        default:
-          return part;
+        default: {
+          const label = KEY_LABELS[lower];
+          return label ? t(label) : part;
+        }
       }
     })
     .join(' + ');

@@ -81,6 +81,7 @@ export interface AppEventMap {
   'library-changed': null;
   'shortcut-triggered': ShortcutTriggeredPayload;
   'overlay-visibility-changed': OverlayVisibilityPayload;
+  'overlay-placement-changed': { placing: boolean };
   'settings-changed': AppSettings;
   notice: NoticePayload;
   'open-settings': null;

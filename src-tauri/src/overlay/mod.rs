@@ -7,6 +7,7 @@
 use parking_lot::Mutex;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
+use crate::domain::settings::{GeneralSettings, OverlayPosition};
 use crate::errors::{AppError, AppResult, ErrorKind};
 use crate::events::{self, OverlayVisibilityPayload};
 use crate::platform::{self, ForegroundWindow};
@@ -18,11 +19,19 @@ pub const MAIN_LABEL: &str = "main";
 #[derive(Default)]
 pub struct OverlayState {
     previous_window: Mutex<Option<ForegroundWindow>>,
+    /// Posicion desde la que se entro al modo de colocacion, para poder volver.
+    placing: Mutex<Option<Option<OverlayPosition>>>,
 }
 
 impl OverlayState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Si el overlay se esta colocando a mano. Mientras dure no se cierra al
+    /// perder el foco ni despues de reproducir: se esta arrastrando.
+    pub fn is_placing(&self) -> bool {
+        self.placing.lock().is_some()
     }
 }
 
@@ -41,9 +50,14 @@ pub fn show(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
     *state.previous_window.lock() = platform::capture_foreground_window();
 
     let window = overlay_window(app)?;
+    let general = app
+        .state::<crate::state::AppState>()
+        .settings()
+        .map(|settings| settings.general)
+        .ok();
 
-    if let Err(error) = center_on_active_monitor(&window) {
-        tracing::debug!(%error, "no se pudo centrar el overlay en el monitor activo");
+    if let Err(error) = place(&window, general.as_ref()) {
+        tracing::debug!(%error, "no se pudo colocar el overlay");
     }
 
     window.show()?;
@@ -94,10 +108,139 @@ pub fn toggle(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
     }
 }
 
+/// Abre el overlay para que el usuario lo arrastre a donde quiera.
+///
+/// Mientras dure no se cierra al perder el foco: se lo va a estar arrastrando
+/// con la ventana de Ajustes adelante.
+pub fn begin_placement(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
+    let app_state = app.state::<crate::state::AppState>();
+    let previous = app_state.settings()?.general.overlay_position;
+    *state.placing.lock() = Some(previous);
+
+    let window = overlay_window(app)?;
+    if let Err(error) = place(&window, Some(&app_state.settings()?.general)) {
+        tracing::debug!(%error, "no se pudo colocar el overlay al empezar a moverlo");
+    }
+
+    window.show()?;
+    window.set_focus()?;
+    emit_placement(app, true);
+    Ok(())
+}
+
+/// Guarda donde quedo el overlay y sale del modo de colocacion.
+pub fn save_placement(app: &AppHandle, state: &OverlayState) -> AppResult<OverlayPosition> {
+    let window = overlay_window(app)?;
+    let position = window.outer_position()?;
+    let position = OverlayPosition {
+        x: position.x,
+        y: position.y,
+    };
+
+    let app_state = app.state::<crate::state::AppState>();
+    let mut settings = app_state.settings()?;
+    settings.general.overlay_position = Some(position);
+    crate::database::settings::save_general(&app_state.db, &settings.general)?;
+
+    finish_placement(app, state)?;
+    crate::events::emit(app, crate::events::SETTINGS_CHANGED, settings);
+    Ok(position)
+}
+
+/// Sale del modo de colocacion dejando la posicion como estaba.
+pub fn cancel_placement(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
+    let previous = state.placing.lock().take().flatten();
+
+    let app_state = app.state::<crate::state::AppState>();
+    let mut settings = app_state.settings()?;
+    if settings.general.overlay_position != previous {
+        settings.general.overlay_position = previous;
+        crate::database::settings::save_general(&app_state.db, &settings.general)?;
+        crate::events::emit(app, crate::events::SETTINGS_CHANGED, settings);
+    }
+
+    finish_placement(app, state)
+}
+
+/// Vuelve al centrado automatico, olvidando la posicion elegida.
+pub fn clear_placement(app: &AppHandle) -> AppResult<()> {
+    let app_state = app.state::<crate::state::AppState>();
+    let mut settings = app_state.settings()?;
+    settings.general.overlay_position = None;
+    crate::database::settings::save_general(&app_state.db, &settings.general)?;
+    crate::events::emit(app, crate::events::SETTINGS_CHANGED, settings);
+    Ok(())
+}
+
+fn finish_placement(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
+    *state.placing.lock() = None;
+    emit_placement(app, false);
+
+    let window = overlay_window(app)?;
+    window.hide()?;
+    crate::events::emit(
+        app,
+        events::OVERLAY_VISIBILITY_CHANGED,
+        OverlayVisibilityPayload { visible: false },
+    );
+
+    // Colocar el overlay se hace desde Ajustes: el foco vuelve ahi, no a lo que
+    // hubiera antes de abrir la ventana principal.
+    focus_main_window(app)
+}
+
+fn emit_placement(app: &AppHandle, placing: bool) {
+    crate::events::emit(
+        app,
+        events::OVERLAY_PLACEMENT_CHANGED,
+        PlacementPayload { placing },
+    );
+}
+
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlacementPayload {
+    placing: bool,
+}
+
 pub fn is_visible(app: &AppHandle) -> bool {
     app.get_webview_window(OVERLAY_LABEL)
         .and_then(|window| window.is_visible().ok())
         .unwrap_or(false)
+}
+
+/// Coloca el overlay donde corresponda antes de mostrarlo.
+///
+/// Una posicion elegida a mano gana sobre todo lo demas; si no hay, se centra
+/// en el monitor activo o, si esa opcion esta apagada, en el principal.
+fn place(window: &WebviewWindow, general: Option<&GeneralSettings>) -> tauri::Result<()> {
+    match general.and_then(|general| general.overlay_position) {
+        Some(position) => {
+            window.set_position(tauri::PhysicalPosition::new(position.x, position.y))?;
+            ensure_on_screen(window)
+        }
+        None if general.is_none_or(|general| general.overlay_on_active_monitor) => {
+            center_on_active_monitor(window)
+        }
+        None => window.center(),
+    }
+}
+
+/// Devuelve el overlay a la pantalla si quedo fuera de todo monitor.
+///
+/// Pasa al desenchufar el monitor donde estaba colocado: sin esto, el overlay
+/// se abriria en coordenadas que ya no existen y el usuario no lo veria mas.
+fn ensure_on_screen(window: &WebviewWindow) -> tauri::Result<()> {
+    let position = window.outer_position()?;
+    if window
+        .monitor_from_point(position.x.into(), position.y.into())?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    tracing::info!("la posicion guardada del overlay quedo fuera de pantalla: se centra");
+    window.center()
 }
 
 /// Centra el overlay en el monitor donde esta el cursor, para que aparezca en
@@ -130,6 +273,15 @@ pub fn focus_main_window(app: &AppHandle) -> AppResult<()> {
     })?;
 
     window.show()?;
+
+    // Windows le aplica al primer ShowWindow de un proceso el `wShowWindow` que
+    // eligio quien lo lanzo. Si ese padre pidio arrancar oculto, el primer
+    // `show()` se descarta en silencio y la ventana no aparece nunca, porque
+    // desde §6 nace con `visible: false`. El segundo ya no se descarta.
+    if !window.is_visible().unwrap_or(true) {
+        window.show()?;
+    }
+
     if window.is_minimized().unwrap_or(false) {
         window.unminimize()?;
     }

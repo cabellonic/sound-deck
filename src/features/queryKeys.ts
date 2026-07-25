@@ -16,4 +16,5 @@ export const queryKeys = {
   shortcutActions: ['shortcut-actions'] as const,
   remoteSearch: (query: string) => ['remote-search', query] as const,
   soundUsage: (soundId: string) => ['sound-usage', soundId] as const,
+  imageExtensions: ['image-extensions'] as const,
 };

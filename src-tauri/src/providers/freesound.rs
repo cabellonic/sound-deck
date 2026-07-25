@@ -1,13 +1,12 @@
 //! Proveedor Freesound (<https://freesound.org>), API v2 documentada y publica.
 //!
-//! ## Alcance del MVP
+//! ## Que se descarga
 //!
-//! La API entrega, con una API key simple, la busqueda y las URLs de *preview*
-//! en el CDN de Freesound. Descargar el archivo **original** requiere OAuth2 con
-//! consentimiento del usuario, que queda fuera del MVP. Por eso guardamos la
-//! preview de alta calidad (MP3), que es lo que la API expone con token y esta
-//! cubierta por la misma licencia del sonido. La arquitectura ya soporta agregar
-//! OAuth2 despues: solo cambia `resolve_download`.
+//! Con la sola API key, la API entrega la busqueda y las URLs de *preview* en
+//! el CDN: es lo que se guarda si el usuario no conecto su cuenta, y esta
+//! cubierto por la misma licencia del sonido. Conectando la cuenta por OAuth2
+//! (ver `providers::oauth`) se descarga el archivo **original**, en el formato
+//! y la calidad con que se subio.
 //!
 //! La API key nunca se hardcodea, no aparece en logs y viaja en un header, no
 //! en la query string.
@@ -220,6 +219,7 @@ impl SoundProvider for FreesoundProvider {
             pagination: true,
             requires_api_key: true,
             unofficial: false,
+            oauth: true,
         }
     }
 
@@ -276,6 +276,24 @@ impl SoundProvider for FreesoundProvider {
         let result: SearchResult = self.get_json(&url, api_key).await?;
         let resolved = to_remote_sound(result);
 
+        let hosts: Vec<String> = ALLOWED_HOSTS.iter().map(|host| host.to_string()).collect();
+
+        // Con la cuenta conectada bajamos el archivo original, en su formato y
+        // calidad de subida. Sin conectar queda la preview MP3, que es lo unico
+        // que la API entrega con la sola API key.
+        if let Some(token) = &context.access_token {
+            return Ok(ResolvedDownload {
+                url: format!("{API_BASE}/sounds/{}/download/", urlencode(&item.remote_id)),
+                allowed_hosts: hosts,
+                // El original puede ser wav, aiff, flac u ogg: lo decide el
+                // sniffing del contenido, no una extension inventada aca.
+                suggested_extension: None,
+                license: resolved.license,
+                attribution: resolved.attribution,
+                headers: vec![("Authorization".to_string(), format!("Bearer {token}"))],
+            });
+        }
+
         let download_url = resolved.preview_url.ok_or_else(|| {
             ProviderError::Unavailable(
                 "el sonido no tiene una version descargable disponible".into(),
@@ -284,10 +302,11 @@ impl SoundProvider for FreesoundProvider {
 
         Ok(ResolvedDownload {
             url: download_url,
-            allowed_hosts: ALLOWED_HOSTS.iter().map(|host| host.to_string()).collect(),
+            allowed_hosts: hosts,
             suggested_extension: Some("mp3".to_string()),
             license: resolved.license,
             attribution: resolved.attribution,
+            headers: Vec::new(),
         })
     }
 }
@@ -421,6 +440,7 @@ mod tests {
         let provider = FreesoundProvider::new(reqwest::Client::new());
         let context = ProviderContext {
             api_key: Some("clave-de-prueba".into()),
+            ..Default::default()
         };
 
         let page = provider

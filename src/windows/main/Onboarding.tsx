@@ -1,10 +1,12 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AudioLines, Upload, Volume2, Wifi } from 'lucide-react';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Dialog, DialogContent, DialogFooter, DialogHeader } from '@/components/ui/primitives';
 import { queryKeys } from '@/features/queryKeys';
+import { useTranslation } from '@/i18n/useTranslation';
+import { formatAccelerator } from '@/lib/utils';
 import * as ipc from '@/lib/ipc';
 import { errorMessage } from '@/lib/ipc';
 import { useUiStore } from '@/stores/useUiStore';
@@ -18,8 +20,15 @@ export interface OnboardingProps {
  * Introduccion breve del primer arranque (§32). Siempre se puede omitir.
  */
 export function Onboarding({ onImport, onOpenSettings }: OnboardingProps) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(true);
   const queryClient = useQueryClient();
+  const settings = useQuery({ queryKey: queryKeys.settings, queryFn: ipc.getSettings });
+  const overlayAccelerator = formatAccelerator(
+    settings.data?.shortcuts.bindings.find((binding) => binding.action === 'toggle_overlay')
+      ?.accelerator ?? 'Alt+Home',
+    t,
+  );
   const pushToast = useUiStore((state) => state.pushToast);
 
   const complete = useMutation({
@@ -38,44 +47,41 @@ export function Onboarding({ onImport, onOpenSettings }: OnboardingProps) {
   const testDevice = () => {
     void ipc
       .testAudioDevice()
-      .then(() => pushToast('success', 'Si escuchaste un tono corto, el audio esta funcionando.'))
+      .then(() => pushToast('success', t('onboarding.testedDevice')))
       .catch((error: unknown) => pushToast('error', errorMessage(error)));
   };
 
   const steps = [
     {
       icon: Upload,
-      title: 'Importa tus audios',
-      description: 'MP3, WAV, OGG o FLAC. Se copian a una carpeta propia para que nunca se rompan.',
+      title: t('onboarding.importTitle'),
+      description: t('onboarding.importDescription'),
       action: (
         <Button size="sm" onClick={onImport}>
-          Importar audios
+          {t('library.importSounds')}
         </Button>
       ),
     },
     {
       icon: Volume2,
-      title: 'Elegi donde suena',
-      description:
-        'Para enviarlo a Discord necesitas un dispositivo virtual (VB-Cable o similar) ya instalado.',
+      title: t('onboarding.outputTitle'),
+      description: t('onboarding.outputDescription'),
       action: (
         <Button size="sm" variant="secondary" onClick={testDevice}>
-          Probar el audio
+          {t('onboarding.testAudio')}
         </Button>
       ),
     },
     {
       icon: AudioLines,
-      title: 'Arma tu botonera',
-      description:
-        'Arrastra audios a los nueve botones. Ctrl + Alt + Espacio abre el overlay sobre cualquier juego y las teclas 1 a 9 los disparan.',
+      title: t('onboarding.boardTitle'),
+      description: t('onboarding.boardDescription', { accelerator: overlayAccelerator }),
       action: null,
     },
     {
       icon: Wifi,
-      title: 'Busca audios online (opcional)',
-      description:
-        'Activa un proveedor y carga su API key para buscar en Internet desde la pestana correspondiente.',
+      title: t('onboarding.providersTitle'),
+      description: t('onboarding.providersDescription'),
       action: (
         <Button
           size="sm"
@@ -85,7 +91,7 @@ export function Onboarding({ onImport, onOpenSettings }: OnboardingProps) {
             onOpenSettings();
           }}
         >
-          Configurar proveedor
+          {t('onboarding.configureProvider')}
         </Button>
       ),
     },
@@ -94,10 +100,7 @@ export function Onboarding({ onImport, onOpenSettings }: OnboardingProps) {
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? setOpen(true) : close())}>
       <DialogContent className="max-w-lg">
-        <DialogHeader
-          title="Bienvenido a Sound Deck"
-          description="Una soundboard local: tus audios viven en tu computadora y funcionan sin conexion."
-        />
+        <DialogHeader title={t('onboarding.title')} description={t('onboarding.description')} />
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
           {steps.map(({ icon: Icon, title, description, action }) => (
@@ -117,7 +120,7 @@ export function Onboarding({ onImport, onOpenSettings }: OnboardingProps) {
 
         <DialogFooter>
           <Button variant="primary" onClick={close}>
-            Empezar
+            {t('onboarding.start')}
           </Button>
         </DialogFooter>
       </DialogContent>

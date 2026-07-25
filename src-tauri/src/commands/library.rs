@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use tauri::{AppHandle, Manager, State};
 
-use crate::database::sounds::{self, LibraryFacets, SoundUsage};
+use crate::database::sounds::{self, LibraryFacets};
+use crate::domain::SoundUsage;
 use crate::domain::{Sound, SoundQuery};
 use crate::errors::{AppError, AppResult};
 use crate::events;
@@ -208,10 +209,50 @@ pub fn clean_temp_files(state: State<'_, AppState>) -> AppResult<u64> {
     state.paths.clean_temp()
 }
 
+/// Mide la sonoridad de los audios que todavia no la tienen.
+///
+/// Decodifica archivo por archivo, asi que va a un hilo de blocking.
+#[tauri::command]
+pub async fn measure_library_loudness(app: AppHandle) -> AppResult<library::LoudnessReport> {
+    let report = tauri::async_runtime::spawn_blocking({
+        let app = app.clone();
+        move || {
+            let state = app.state::<AppState>();
+            library::measure_pending_loudness(&state.db, &state.paths)
+        }
+    })
+    .await
+    .map_err(|error| {
+        AppError::filesystem("La medicion de volumen se interrumpio.")
+            .with_technical(error.to_string())
+    })??;
+
+    if report.measured > 0 {
+        events::emit(&app, events::LIBRARY_CHANGED, ());
+    }
+    Ok(report)
+}
+
 #[tauri::command(async)]
 pub fn backup_database(state: State<'_, AppState>) -> AppResult<String> {
     let path = library::backup_database(&state.paths)?;
     Ok(path.to_string_lossy().to_string())
+}
+
+/// Restaura una copia de seguridad y reinicia la aplicacion.
+///
+/// La copia se valida antes de tocar nada. El reemplazo real ocurre en el
+/// arranque siguiente, que es el unico momento en el que la base no esta
+/// abierta; por eso esto termina reiniciando y no devuelve nunca.
+#[tauri::command(async)]
+pub fn restore_database(app: AppHandle, state: State<'_, AppState>, path: String) -> AppResult<()> {
+    let source = library::normalize_input_path(&path)?;
+    library::stage_restore(&state.paths, &source)?;
+
+    // El audio suena hasta que el proceso muere; pararlo antes evita dejar el
+    // dispositivo tomado en el reinicio.
+    state.audio.stop_all();
+    app.restart();
 }
 
 /// Extensiones aceptadas, para configurar el filtro del dialogo nativo.

@@ -10,6 +10,11 @@ import {
   slotFromKey,
   volumeToPercent,
 } from '@/lib/utils';
+import { translate, type PlainKey } from '@/i18n';
+
+/** Traductores fijos, para probar el formato en los dos idiomas. */
+const es = (key: PlainKey) => translate('es', key);
+const en = (key: PlainKey) => translate('en', key);
 
 describe('formatDuration', () => {
   it('formatea minutos y segundos', () => {
@@ -108,7 +113,22 @@ describe('aceleradores', () => {
   });
 
   it('formatea para mostrar', () => {
-    expect(formatAccelerator('Ctrl+Alt+Space')).toBe('Ctrl + Alt + Espacio');
-    expect(formatAccelerator('PageUp')).toBe('Re Pag');
+    expect(formatAccelerator('Ctrl+Alt+Space', es)).toBe('Ctrl + Alt + Espacio');
+    expect(formatAccelerator('PageUp', es)).toBe('Re Pag');
+  });
+
+  it('usa el nombre de las teclas en el idioma activo', () => {
+    // El mismo atajo tiene que leerse distinto segun el idioma: en ingles la
+    // tecla Home no se llama "Inicio".
+    expect(formatAccelerator('Alt+Home', es)).toBe('Alt + Inicio');
+    expect(formatAccelerator('Alt+End', es)).toBe('Alt + Fin');
+    expect(formatAccelerator('Alt+Home', en)).toBe('Alt + Home');
+    expect(formatAccelerator('Alt+End', en)).toBe('Alt + End');
+    expect(formatAccelerator('Ctrl+Alt+Space', en)).toBe('Ctrl + Alt + Space');
+  });
+
+  it('deja las teclas que no cambian con el idioma y los modificadores', () => {
+    expect(formatAccelerator('Ctrl+Shift+F5', es)).toBe('Ctrl + Shift + F5');
+    expect(formatAccelerator('Super+K', en)).toBe('Win + K');
   });
 });

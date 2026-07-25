@@ -10,8 +10,10 @@ import {
   Switch,
 } from '@/components/ui/primitives';
 import { Input } from '@/components/ui/Input';
-import { cn, formatBytes, formatDuration, formatRelativeDate, volumeToPercent } from '@/lib/utils';
-import { CATEGORY_LABELS, type Sound } from '@/types/domain';
+import { categoryKey } from '@/i18n';
+import { useTranslation } from '@/i18n/useTranslation';
+import { cn, formatBytes, formatDuration, relativeDate, volumeToPercent } from '@/lib/utils';
+import type { Sound } from '@/types/domain';
 
 export interface PromptDialogProps {
   open: boolean;
@@ -32,9 +34,10 @@ export function PromptDialog({
   description,
   label,
   initialValue,
-  confirmLabel = 'Guardar',
+  confirmLabel,
   onConfirm,
 }: PromptDialogProps) {
+  const { t } = useTranslation();
   const [value, setValue] = useState(initialValue);
 
   useEffect(() => {
@@ -71,10 +74,10 @@ export function PromptDialog({
         </form>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" onClick={submit} disabled={!value.trim()}>
-            {confirmLabel}
+            {confirmLabel ?? t('common.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -100,10 +103,11 @@ export function ConfirmDialog({
   title,
   description,
   details,
-  confirmLabel = 'Confirmar',
+  confirmLabel,
   destructive = true,
   onConfirm,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -111,7 +115,7 @@ export function ConfirmDialog({
         {details ? <div className="px-5 py-3 text-sm text-fg-muted">{details}</div> : null}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button
             variant={destructive ? 'danger' : 'primary'}
@@ -120,7 +124,7 @@ export function ConfirmDialog({
               onOpenChange(false);
             }}
           >
-            {confirmLabel}
+            {confirmLabel ?? t('common.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -162,6 +166,7 @@ export function VolumeDialog({
   inheritHint,
   onConfirm,
 }: VolumeDialogProps) {
+  const { t } = useTranslation();
   const [linked, setLinked] = useState(value === null);
   const [current, setCurrent] = useState(value ?? inheritedVolume);
 
@@ -208,7 +213,7 @@ export function VolumeDialog({
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button
             variant="primary"
@@ -217,7 +222,7 @@ export function VolumeDialog({
               onOpenChange(false);
             }}
           >
-            Guardar
+            {t('common.save')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -235,41 +240,63 @@ export function SoundDetailsDialog({
   onOpenChange: (open: boolean) => void;
   sound: Sound | null;
 }) {
+  const { t, locale } = useTranslation();
   if (!sound) return null;
 
+  const none = t('common.none');
+
+  /** Traduce una fecha relativa ya descompuesta. */
+  const fecha = (iso: string | null): string => {
+    const parsed = relativeDate(iso, locale);
+    switch (parsed.kind) {
+      case 'never':
+        return t('date.never');
+      case 'invalid':
+        return none;
+      case 'now':
+        return t('date.now');
+      case 'absolute':
+        return parsed.value;
+      default:
+        return t(`date.${parsed.kind}`, { value: parsed.value });
+    }
+  };
   const rows: Array<[string, string]> = [
-    ['Nombre', sound.name],
-    ['Nombre original', sound.originalName ?? '—'],
-    ['Duracion', formatDuration(sound.durationMs) ?? 'Desconocida'],
-    ['Formato', sound.fileExtension?.toUpperCase() ?? '—'],
-    ['Tamano', formatBytes(sound.fileSizeBytes)],
-    ['Categoria', CATEGORY_LABELS[sound.normalizedCategory]],
-    ['Etiquetas', sound.tags.length > 0 ? sound.tags.join(', ') : '—'],
+    [t('details.name'), sound.name],
+    [t('details.originalName'), sound.originalName ?? none],
+    [t('details.duration'), formatDuration(sound.durationMs) ?? t('common.unknown')],
+    [t('details.format'), sound.fileExtension?.toUpperCase() ?? none],
+    [t('details.size'), formatBytes(sound.fileSizeBytes)],
+    [t('details.category'), t(categoryKey(sound.normalizedCategory))],
+    [t('details.tags'), sound.tags.length > 0 ? sound.tags.join(', ') : none],
     [
-      'Origen',
+      t('details.origin'),
       sound.source.type === 'provider'
         ? `${sound.source.providerId} (id ${sound.source.remoteId})`
-        : 'Importado localmente',
+        : t('details.importedLocally'),
     ],
-    ['Licencia', sound.license ? sound.license.name : '—'],
-    ['Atribucion', sound.attribution ?? '—'],
+    [t('details.license'), sound.license ? sound.license.name : none],
+    [t('details.attribution'), sound.attribution ?? none],
     [
-      'Volumen',
+      t('details.volume'),
       sound.customVolume === null
-        ? 'Sigue el volumen general'
+        ? t('details.followsMaster')
         : `${volumeToPercent(sound.customVolume)}% (propio)`,
     ],
-    ['Imagen', sound.imagePath ? 'Asignada' : 'Sin imagen'],
-    ['Reproducciones', String(sound.playCount)],
-    ['Ultima vez', formatRelativeDate(sound.lastPlayedAt)],
-    ['Agregado', formatRelativeDate(sound.createdAt)],
-    ['Archivo', sound.fileAvailable ? 'Disponible' : 'No encontrado'],
+    [t('details.image'), sound.imagePath ? t('details.imageAssigned') : t('details.imageMissing')],
+    [t('details.playCount'), String(sound.playCount)],
+    [t('details.lastPlayed'), fecha(sound.lastPlayedAt)],
+    [t('details.added'), fecha(sound.createdAt)],
+    [
+      t('details.file'),
+      sound.fileAvailable ? t('details.fileAvailable') : t('details.fileMissing'),
+    ],
   ];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
-        <DialogHeader title="Metadata del audio" description={sound.name} />
+        <DialogHeader title={t('details.title')} description={sound.name} />
         <dl className="min-h-0 flex-1 overflow-y-auto px-5 py-4 text-sm">
           {rows.map(([label, value]) => (
             <div
@@ -283,7 +310,7 @@ export function SoundDetailsDialog({
         </dl>
         <DialogFooter>
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
-            Cerrar
+            {t('common.close')}
           </Button>
         </DialogFooter>
       </DialogContent>

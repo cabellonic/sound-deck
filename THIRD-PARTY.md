@@ -21,6 +21,7 @@ pnpm licenses list
 | `rusqlite` (feature `bundled`)                      | MIT                          | SQLite embebido. SQLite es de dominio público           |
 | `rodio`                                             | MIT OR Apache-2.0            | Decodificación y mezcla de audio                        |
 | `cpal` (vía `rodio::cpal`)                          | Apache-2.0                   | Enumeración y apertura de dispositivos                  |
+| `ebur128`                                           | MIT                          | Medición de sonoridad EBU R128 para normalizar volumen  |
 | `symphonia` (vía `rodio`)                           | MPL-2.0                      | Decodificadores MP3, FLAC, Vorbis, WAV                  |
 | `reqwest`                                           | MIT OR Apache-2.0            | Cliente HTTP                                            |
 | `tokio`, `futures-util`                             | MIT                          | Runtime asíncrono y streams                             |

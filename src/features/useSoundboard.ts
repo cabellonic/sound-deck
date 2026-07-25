@@ -200,14 +200,22 @@ export function useSlotMutations() {
 export function usePlaybackActions() {
   const pushToast = useUiStore((state) => state.pushToast);
   const setPreviewKey = useUiStore((state) => state.setPreviewKey);
+  const setPreviewLoadingKey = useUiStore((state) => state.setPreviewLoadingKey);
 
   const report = (error: unknown) => pushToast('error', errorMessage(error));
+
+  /** Deja de sonar y de esperar cualquier previsualizacion anterior. */
+  const clearPreview = () => {
+    setPreviewKey(null);
+    setPreviewLoadingKey(null);
+  };
 
   return {
     playSlot: (pageId: string, slotNumber: SlotNumber) =>
       ipc.playSlot(pageId, slotNumber).catch(report),
     playSound: (soundId: string) => ipc.playSound(soundId).catch(report),
     previewLocal: (soundId: string) => {
+      clearPreview();
       setPreviewKey(`local:${soundId}`);
       return ipc.previewLocalSound(soundId).catch((error) => {
         setPreviewKey(null);
@@ -215,18 +223,32 @@ export function usePlaybackActions() {
       });
     },
     previewRemote: (providerId: string, remoteId: string) => {
-      setPreviewKey(`remote:${providerId}:${remoteId}`);
-      return ipc.previewRemoteSound(providerId, remoteId).catch((error) => {
-        setPreviewKey(null);
-        report(error);
-      });
+      const key = `remote:${providerId}:${remoteId}`;
+      // Suena recien cuando termina de bajarse: hasta entonces no hay nada
+      // sonando, y decir lo contrario haria parecer que la aplicacion se colgo.
+      clearPreview();
+      setPreviewLoadingKey(key);
+
+      return ipc
+        .previewRemoteSound(providerId, remoteId)
+        .then(() => {
+          // Si mientras se bajaba el usuario pidio otra cosa, esta ya no suena:
+          // el backend la descarto y aca no hay que marcarla como sonando.
+          if (useUiStore.getState().previewLoadingKey !== key) return;
+          setPreviewLoadingKey(null);
+          setPreviewKey(key);
+        })
+        .catch((error) => {
+          if (useUiStore.getState().previewLoadingKey === key) setPreviewLoadingKey(null);
+          report(error);
+        });
     },
     stopPreview: () => {
-      setPreviewKey(null);
+      clearPreview();
       return ipc.stopPreview().catch(report);
     },
     stopAll: () => {
-      setPreviewKey(null);
+      clearPreview();
       return ipc.stopAll().catch(report);
     },
   };

@@ -172,7 +172,11 @@ export const getLibraryStorage = () => call<LibraryStorage>('get_library_storage
 export const findMissingSounds = () => call<Sound[]>('find_missing_sounds');
 export const removeOrphanSounds = () => call<number>('remove_orphan_sounds');
 export const cleanTempFiles = () => call<number>('clean_temp_files');
+export const measureLibraryLoudness = () =>
+  call<{ measured: number; failed: number }>('measure_library_loudness');
 export const backupDatabase = () => call<string>('backup_database');
+/** Reinicia la aplicacion: la promesa no se resuelve si la copia era valida. */
+export const restoreDatabase = (path: string) => call<void>('restore_database', { path });
 export const supportedAudioExtensions = () => call<string[]>('supported_audio_extensions');
 export const getAppFolders = () => call<AppFolders>('get_app_folders');
 export const revealSoundInFolder = (soundId: string) =>
@@ -211,6 +215,13 @@ export const resetShortcuts = () => call<ShortcutUpdate>('reset_shortcuts');
 export const listShortcutActions = () => call<ShortcutActionInfo[]>('list_shortcut_actions');
 export const setAutostart = (enabled: boolean) => call<boolean>('set_autostart', { enabled });
 
+// --- Posicion del overlay ---------------------------------------------------
+
+export const beginOverlayPlacement = () => call<void>('begin_overlay_placement');
+export const saveOverlayPlacement = () => call<{ x: number; y: number }>('save_overlay_placement');
+export const cancelOverlayPlacement = () => call<void>('cancel_overlay_placement');
+export const clearOverlayPlacement = () => call<void>('clear_overlay_placement');
+
 // --- Proveedores online -----------------------------------------------------
 
 export const listProviders = () => call<ProviderStatus[]>('list_providers');
@@ -218,6 +229,14 @@ export const setProviderEnabled = (providerId: string, enabled: boolean) =>
   call<ProviderStatus[]>('set_provider_enabled', { providerId, enabled });
 export const setProviderApiKey = (providerId: string, apiKey: string | null) =>
   call<ProviderStatus[]>('set_provider_api_key', { providerId, apiKey });
+export const setProviderClientId = (providerId: string, clientId: string | null) =>
+  call<ProviderStatus[]>('set_provider_client_id', { providerId, clientId });
+export const beginProviderAuthorization = (providerId: string) =>
+  call<{ url: string; state: string }>('begin_provider_authorization', { providerId });
+export const completeProviderAuthorization = (providerId: string, code: string) =>
+  call<ProviderStatus[]>('complete_provider_authorization', { providerId, code });
+export const disconnectProviderAccount = (providerId: string) =>
+  call<ProviderStatus[]>('disconnect_provider_account', { providerId });
 export const testProviderConnection = (providerId: string) =>
   call<void>('test_provider_connection', { providerId });
 export const searchRemoteSounds = (query: string, page?: number, pageSize?: number) =>

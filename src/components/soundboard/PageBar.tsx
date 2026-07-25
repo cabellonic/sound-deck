@@ -10,8 +10,9 @@ import {
   Tooltip,
 } from '@/components/ui/primitives';
 import { isClickSuppressed, useDragSource, useDropTarget } from '@/features/dnd';
+import { useTranslation } from '@/i18n/useTranslation';
 import { cn } from '@/lib/utils';
-import { MAX_PAGES, type PageSummary } from '@/types/domain';
+import { MAX_PAGES, SLOTS_PER_PAGE, type PageSummary } from '@/types/domain';
 
 /** Pestana de una pagina: se puede seleccionar y arrastrar para reordenar. */
 function PageTab({
@@ -25,6 +26,7 @@ function PageTab({
   onSelect: (pageId: string) => void;
   onDropPage: (sourceId: string, targetId: string) => void;
 }) {
+  const { t } = useTranslation();
   const { onPointerDown } = useDragSource(() => ({ kind: 'page', pageId: page.id }), page.name);
   const { dropProps, isOver } = useDropTarget(`page:${page.id}`, (payload) => {
     if (payload.kind === 'page') onDropPage(payload.pageId, page.id);
@@ -52,7 +54,11 @@ function PageTab({
       <span className="max-w-32 truncate">{page.name}</span>
       <span
         className="font-mono text-[10px] tabular-nums text-fg-subtle"
-        aria-label={`${page.assignedSlots} de 9 botones asignados`}
+        aria-label={t('soundboard.pageSlots', {
+          page: page.name,
+          assigned: page.assignedSlots,
+          total: SLOTS_PER_PAGE,
+        })}
       >
         {page.assignedSlots}/9
       </span>
@@ -82,6 +88,7 @@ export function PageBar({
   onDuplicate,
   onReorder,
 }: PageBarProps) {
+  const { t } = useTranslation();
   const activeIndex = pages.findIndex((page) => page.id === activePageId);
   const goRelative = (delta: number) => {
     if (pages.length === 0) return;
@@ -107,16 +114,16 @@ export function PageBar({
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-1.5">
         <h2 className="mr-auto text-xs font-semibold uppercase tracking-wide text-fg-subtle">
-          Botonera
+          {t('soundboard.title')}
         </h2>
 
-        <Tooltip content={`Nueva pagina (maximo ${MAX_PAGES})`}>
+        <Tooltip content={t('soundboard.newPage', { max: MAX_PAGES })}>
           <Button
             size="icon"
             variant="ghost"
             onClick={onCreate}
             disabled={pages.length >= MAX_PAGES}
-            aria-label="Crear pagina"
+            aria-label={t('soundboard.createPage')}
           >
             <Plus className="h-4 w-4" aria-hidden />
           </Button>
@@ -125,21 +132,21 @@ export function PageBar({
         {activePage ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button size="icon" variant="ghost" aria-label="Acciones de la pagina">
+              <Button size="icon" variant="ghost" aria-label={t('soundboard.pageActions')}>
                 <MoreVertical className="h-4 w-4" aria-hidden />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onSelect={() => onRename(activePage)}>
                 <Pencil className="h-3.5 w-3.5" aria-hidden />
-                Renombrar pagina
+                {t('soundboard.renamePage')}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => onDuplicate(activePage)}
                 disabled={pages.length >= MAX_PAGES}
               >
                 <Copy className="h-3.5 w-3.5" aria-hidden />
-                Duplicar pagina
+                {t('soundboard.duplicatePage')}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -148,14 +155,14 @@ export function PageBar({
                 disabled={pages.length <= 1}
               >
                 <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                Borrar pagina
+                {t('soundboard.deletePage')}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
       </div>
 
-      <div className="flex flex-wrap gap-1" role="tablist" aria-label="Paginas de la botonera">
+      <div className="flex flex-wrap gap-1" role="tablist" aria-label={t('soundboard.pages')}>
         {pages.map((page) => (
           <PageTab
             key={page.id}
@@ -173,7 +180,7 @@ export function PageBar({
           variant="ghost"
           onClick={() => goRelative(-1)}
           disabled={pages.length <= 1}
-          aria-label="Pagina anterior"
+          aria-label={t('soundboard.previousPage')}
         >
           <ChevronLeft className="h-4 w-4" aria-hidden />
         </Button>
@@ -185,7 +192,7 @@ export function PageBar({
           variant="ghost"
           onClick={() => goRelative(1)}
           disabled={pages.length <= 1}
-          aria-label="Pagina siguiente"
+          aria-label={t('soundboard.nextPage')}
         >
           <ChevronRight className="h-4 w-4" aria-hidden />
         </Button>

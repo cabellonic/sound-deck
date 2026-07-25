@@ -16,6 +16,7 @@ pub use settings::{
 };
 pub use sound::{
     LibraryFilter, Sound, SoundLicense, SoundQuery, SoundRecord, SoundSortOrder, SoundSource,
+    SoundUsage,
 };
 
 /// Marca de tiempo actual en RFC 3339 UTC. Formato unico para toda la base.

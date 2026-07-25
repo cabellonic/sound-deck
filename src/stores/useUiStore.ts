@@ -64,9 +64,19 @@ interface UiState {
   playingSoundIds: string[];
   setPlayingSoundIds: (ids: string[]) => void;
 
-  /** Preview en curso: `local:<id>` o `remote:<provider>:<id>`. */
+  /** Preview sonando: `local:<id>` o `remote:<provider>:<id>`. */
   previewKey: string | null;
   setPreviewKey: (key: string | null) => void;
+
+  /**
+   * Preview pedida que todavia se esta bajando.
+   *
+   * Un resultado online hay que descargarlo antes de que suene. En ese rato no
+   * suena nada, asi que la fila tiene que decir que esta cargando y no fingir
+   * que ya esta reproduciendo.
+   */
+  previewLoadingKey: string | null;
+  setPreviewLoadingKey: (key: string | null) => void;
 
   /** Descargas activas, indexadas por `<provider>:<remoteId>`. */
   downloads: Record<string, DownloadState>;
@@ -117,6 +127,9 @@ export const useUiStore = create<UiState>((set) => ({
 
   previewKey: null,
   setPreviewKey: (previewKey) => set({ previewKey }),
+
+  previewLoadingKey: null,
+  setPreviewLoadingKey: (previewLoadingKey) => set({ previewLoadingKey }),
 
   downloads: {},
   setDownload: (key, state) =>

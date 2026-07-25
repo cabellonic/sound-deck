@@ -9,7 +9,7 @@
 //! el hilo principal.
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -71,11 +71,36 @@ impl EngineInner {
     }
 }
 
+/// Descarta las previsualizaciones que llegan tarde.
+///
+/// Una previsualizacion online tiene que bajarse antes de sonar, y en ese rato
+/// el usuario puede pedir otra. Cada pedido se lleva un numero; cuando su
+/// descarga termina, solo suena si el numero sigue siendo el ultimo. Sin esto,
+/// una descarga lenta puede terminar despues de una rapida y sonar encima.
+#[derive(Debug, Default)]
+pub struct PreviewGate(AtomicU64);
+
+impl PreviewGate {
+    /// Invalida lo que haya en vuelo y devuelve el numero del pedido nuevo.
+    pub fn invalidate(&self) -> u64 {
+        self.0.fetch_add(1, Ordering::SeqCst) + 1
+    }
+
+    pub fn current(&self) -> u64 {
+        self.0.load(Ordering::SeqCst)
+    }
+
+    pub fn is_current(&self, token: u64) -> bool {
+        self.current() == token
+    }
+}
+
 /// Motor de audio compartido. Clonar comparte el mismo estado.
 #[derive(Clone)]
 pub struct AudioEngine {
     inner: Arc<Mutex<EngineInner>>,
     app: AppHandle,
+    preview_gate: Arc<PreviewGate>,
 }
 
 impl AudioEngine {
@@ -89,7 +114,22 @@ impl AudioEngine {
                 preview_temp_file: None,
             })),
             app,
+            preview_gate: Arc::new(PreviewGate::default()),
         }
+    }
+
+    /// Anuncia una previsualizacion que todavia tiene que cargarse.
+    ///
+    /// Corta lo que estuviera sonando, que es lo que el usuario espera al
+    /// apretar play en otra cosa, y devuelve el numero de este pedido.
+    pub fn begin_preview(&self) -> u64 {
+        self.stop_preview();
+        self.preview_gate.current()
+    }
+
+    /// Si el pedido sigue siendo el ultimo, o alguien pidio otra cosa mientras.
+    pub fn is_current_preview(&self, token: u64) -> bool {
+        self.preview_gate.is_current(token)
     }
 
     /// Dispositivo actualmente en uso.
@@ -233,6 +273,7 @@ impl AudioEngine {
         volume: f32,
         temp_file: Option<PathBuf>,
     ) -> AppResult<()> {
+        self.preview_gate.invalidate();
         let source = decode_file(path)?;
 
         let mut inner = self.inner.lock();
@@ -278,6 +319,7 @@ impl AudioEngine {
     }
 
     pub fn stop_preview(&self) {
+        self.preview_gate.invalidate();
         let mut inner = self.inner.lock();
         let had_preview = inner.preview.take().inspect(|p| p.player.stop()).is_some();
         EngineInner::remove_preview_temp(&mut inner.preview_temp_file);
@@ -297,6 +339,7 @@ impl AudioEngine {
 
     /// Detiene todo: reproducciones y previsualizacion.
     pub fn stop_all(&self) {
+        self.preview_gate.invalidate();
         let mut inner = self.inner.lock();
         inner_stop_all(&mut inner);
         if let Some(preview) = inner.preview.take() {
@@ -440,6 +483,48 @@ mod tests {
             Ok(_) => panic!("se esperaba un error al decodificar {}", path.display()),
             Err(error) => error,
         }
+    }
+
+    #[test]
+    fn solo_suena_la_ultima_previsualizacion_pedida() {
+        let gate = PreviewGate::default();
+
+        // Se pide una y todavia no llego nadie mas: cuando termine, suena.
+        let primera = gate.invalidate();
+        assert!(gate.is_current(primera));
+
+        // El usuario aprieta play en otra mientras la primera se baja.
+        let segunda = gate.invalidate();
+        assert!(gate.is_current(segunda));
+        assert!(
+            !gate.is_current(primera),
+            "la primera llego tarde y no deberia sonar"
+        );
+    }
+
+    #[test]
+    fn detener_invalida_lo_que_se_estaba_bajando() {
+        let gate = PreviewGate::default();
+        let pedido = gate.invalidate();
+
+        // Equivale a apretar stop, reproducir algo local o detener todo.
+        gate.invalidate();
+
+        assert!(!gate.is_current(pedido));
+    }
+
+    #[test]
+    fn los_numeros_de_pedido_no_se_repiten() {
+        // Si se reciclaran, una descarga vieja podria hacerse pasar por la
+        // actual justo despues de dar la vuelta.
+        let gate = PreviewGate::default();
+        let emitidos: Vec<u64> = (0..100).map(|_| gate.invalidate()).collect();
+
+        let mut unicos = emitidos.clone();
+        unicos.sort_unstable();
+        unicos.dedup();
+        assert_eq!(unicos.len(), emitidos.len());
+        assert!(emitidos.windows(2).all(|par| par[1] > par[0]));
     }
 
     #[test]

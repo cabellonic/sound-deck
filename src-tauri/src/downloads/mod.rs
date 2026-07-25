@@ -57,7 +57,28 @@ pub async fn download_to_temp(
     max_bytes: u64,
     on_progress: Option<ProgressCallback<'_>>,
 ) -> AppResult<DownloadOutcome> {
-    let response = client.get(url).send().await.map_err(|error| {
+    download_to_temp_with_headers(client, url, &[], destination, max_bytes, on_progress).await
+}
+
+/// Igual que `download_to_temp`, pero con cabeceras propias de la peticion.
+///
+/// Existe para el `Authorization` de OAuth2. Las cabeceras se mandan solo al
+/// host original: `reqwest` no las reenvia si hay un redirect a otro dominio,
+/// que es justo lo que queremos cuando el servidor manda a un CDN firmado.
+pub async fn download_to_temp_with_headers(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &[(String, String)],
+    destination: &Path,
+    max_bytes: u64,
+    on_progress: Option<ProgressCallback<'_>>,
+) -> AppResult<DownloadOutcome> {
+    let mut request = client.get(url);
+    for (name, value) in headers {
+        request = request.header(name, value);
+    }
+
+    let response = request.send().await.map_err(|error| {
         let message = if error.is_timeout() {
             "La descarga tardo demasiado y se cancelo."
         } else if error.is_connect() {
@@ -281,6 +302,112 @@ mod tests {
         out.extend_from_slice(&800u32.to_le_bytes());
         out.extend(std::iter::repeat_n(0u8, 800));
         out
+    }
+
+    /// El `Authorization` de OAuth2 tiene que llegar al servidor: sin el,
+    /// Freesound devuelve la pagina de login en vez del archivo original.
+    #[tokio::test]
+    async fn manda_las_cabeceras_de_autorizacion() {
+        let server = Arc::new(tiny_http::Server::http("127.0.0.1:0").unwrap());
+        let port = server.server_addr().to_ip().unwrap().port();
+        let visto = Arc::new(std::sync::Mutex::new(None::<String>));
+
+        let thread_server = server.clone();
+        let capturado = visto.clone();
+        let body = wav_de_prueba();
+        let handle = std::thread::spawn(move || {
+            if let Ok(request) = thread_server.recv() {
+                *capturado.lock().unwrap() = request
+                    .headers()
+                    .iter()
+                    .find(|header| header.field.equiv("Authorization"))
+                    .map(|header| header.value.as_str().to_string());
+
+                let length = body.len();
+                let _ = request.respond(tiny_http::Response::new(
+                    tiny_http::StatusCode(200),
+                    vec![
+                        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"audio/wav"[..])
+                            .unwrap(),
+                    ],
+                    Cursor::new(body.clone()),
+                    Some(length),
+                    None,
+                ));
+            }
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let destino = dir.path().join("original.wav");
+        let headers = vec![("Authorization".to_string(), "Bearer un-token".to_string())];
+
+        download_to_temp_with_headers(
+            &build_http_client(),
+            &format!("http://127.0.0.1:{port}/sounds/1/download/"),
+            &headers,
+            &destino,
+            10 * 1024 * 1024,
+            None,
+        )
+        .await
+        .unwrap();
+
+        server.unblock();
+        let _ = handle.join();
+
+        assert_eq!(visto.lock().unwrap().as_deref(), Some("Bearer un-token"));
+        assert!(destino.is_file());
+    }
+
+    /// Una descarga sin cabeceras no debe inventar ninguna.
+    #[tokio::test]
+    async fn sin_cabeceras_no_manda_autorizacion() {
+        let server = Arc::new(tiny_http::Server::http("127.0.0.1:0").unwrap());
+        let port = server.server_addr().to_ip().unwrap().port();
+        let visto = Arc::new(std::sync::Mutex::new(Some("centinela".to_string())));
+
+        let thread_server = server.clone();
+        let capturado = visto.clone();
+        let body = wav_de_prueba();
+        let handle = std::thread::spawn(move || {
+            if let Ok(request) = thread_server.recv() {
+                *capturado.lock().unwrap() = request
+                    .headers()
+                    .iter()
+                    .find(|header| header.field.equiv("Authorization"))
+                    .map(|header| header.value.as_str().to_string());
+
+                let length = body.len();
+                let _ = request.respond(tiny_http::Response::new(
+                    tiny_http::StatusCode(200),
+                    vec![
+                        tiny_http::Header::from_bytes(&b"Content-Type"[..], &b"audio/wav"[..])
+                            .unwrap(),
+                    ],
+                    Cursor::new(body.clone()),
+                    Some(length),
+                    None,
+                ));
+            }
+        });
+
+        let dir = tempfile::tempdir().unwrap();
+        let destino = dir.path().join("preview.wav");
+
+        download_to_temp(
+            &build_http_client(),
+            &format!("http://127.0.0.1:{port}/preview.mp3"),
+            &destino,
+            10 * 1024 * 1024,
+            None,
+        )
+        .await
+        .unwrap();
+
+        server.unblock();
+        let _ = handle.join();
+
+        assert_eq!(*visto.lock().unwrap(), None);
     }
 
     #[tokio::test]

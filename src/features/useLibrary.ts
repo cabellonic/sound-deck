@@ -7,6 +7,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 
 import * as ipc from '@/lib/ipc';
 import { errorMessage } from '@/lib/ipc';
+import { useTranslation, type Translator } from '@/i18n/useTranslation';
 import { useUiStore } from '@/stores/useUiStore';
 import type { ImportReport } from '@/types/domain';
 
@@ -44,24 +45,27 @@ export function useAppFolders() {
 }
 
 /** Resume el resultado de una importacion en un unico aviso claro (§33). */
-function summarizeImport(report: ImportReport): { level: 'success' | 'warning'; message: string } {
+function summarizeImport(
+  report: ImportReport,
+  { t, tp }: Translator,
+): { level: 'success' | 'warning'; message: string } {
   const parts: string[] = [];
   if (report.imported.length > 0) {
     parts.push(
-      report.imported.length === 1
-        ? `1 audio importado`
-        : `${report.imported.length} audios importados`,
+      tp(report.imported.length, 'toast.importedSounds.one', 'toast.importedSounds.many', {
+        count: report.imported.length,
+      }),
     );
   }
   if (report.duplicates.length > 0) {
-    parts.push(`${report.duplicates.length} ya estaban en la biblioteca`);
+    parts.push(t('toast.importedDuplicates', { count: report.duplicates.length }));
   }
   if (report.failed.length > 0) {
-    parts.push(`${report.failed.length} con error`);
+    parts.push(t('toast.importedFailed', { count: report.failed.length }));
   }
 
   if (parts.length === 0) {
-    return { level: 'warning', message: 'No se importo ningun archivo.' };
+    return { level: 'warning', message: t('toast.importedNone') };
   }
 
   return {
@@ -71,6 +75,8 @@ function summarizeImport(report: ImportReport): { level: 'success' | 'warning'; 
 }
 
 export function useLibraryMutations() {
+  const translator = useTranslation();
+  const { t } = translator;
   const queryClient = useQueryClient();
   const pushToast = useUiStore((state) => state.pushToast);
   const onError = (error: unknown) => pushToast('error', errorMessage(error));
@@ -86,7 +92,7 @@ export function useLibraryMutations() {
     mutationFn: (paths: string[]) => ipc.importSoundFiles(paths),
     onSuccess: (report) => {
       invalidate();
-      const summary = summarizeImport(report);
+      const summary = summarizeImport(report, translator);
       pushToast(summary.level, summary.message);
 
       // Los archivos rechazados se detallan uno por uno: el usuario necesita
@@ -104,7 +110,7 @@ export function useLibraryMutations() {
       const extensions = await ipc.supportedAudioExtensions();
       const selected = await open({
         multiple: true,
-        title: 'Importar audios',
+        title: t('dialog.importSounds'),
         filters: [{ name: 'Audio', extensions }],
       });
 
@@ -142,7 +148,7 @@ export function useLibraryMutations() {
     mutationFn: (soundId: string) => ipc.clearSoundImage(soundId),
     onSuccess: () => {
       invalidate();
-      pushToast('info', 'Imagen quitada.');
+      pushToast('info', t('toast.imageRemoved'));
     },
     onError,
   });
@@ -158,8 +164,8 @@ export function useLibraryMutations() {
       const extensions = await ipc.supportedImageExtensions();
       const selected = await open({
         multiple: false,
-        title: 'Elegir imagen del audio',
-        filters: [{ name: 'Imagen', extensions }],
+        title: t('dialog.pickImage'),
+        filters: [{ name: t('dialog.imageFilter'), extensions }],
       });
 
       if (typeof selected !== 'string') return;
@@ -180,7 +186,7 @@ export function useLibraryMutations() {
     mutationFn: (soundId: string) => ipc.deleteSound(soundId),
     onSuccess: () => {
       invalidate();
-      pushToast('info', 'Audio eliminado de la biblioteca.');
+      pushToast('info', t('toast.soundDeleted'));
     },
     onError,
   });
@@ -190,7 +196,7 @@ export function useLibraryMutations() {
       ipc.downloadRemoteSound(providerId, remoteId),
     onSuccess: (sound) => {
       invalidate();
-      pushToast('success', `"${sound.name}" guardado en la biblioteca.`);
+      pushToast('success', t('toast.soundSaved', { name: sound.name }));
     },
     onError,
   });

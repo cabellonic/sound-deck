@@ -10,11 +10,13 @@
 //! - `audio`: dispositivos y motor de reproduccion.
 //! - `providers`: proveedores online detras de un trait.
 //! - `downloads`: descarga con limites y validacion de URL.
-//! - `shortcuts`, `overlay`, `tray`, `platform`: integracion con el sistema.
+//! - `shortcuts`, `overlay`, `tray`, `autostart`, `platform`: integracion con
+//!   el sistema.
 //! - `commands`: la API que ve el frontend.
 
 pub mod app;
 pub mod audio;
+pub mod autostart;
 pub mod commands;
 pub mod database;
 pub mod domain;

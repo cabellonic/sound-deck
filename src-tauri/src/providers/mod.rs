@@ -6,6 +6,7 @@
 
 pub mod freesound;
 pub mod myinstants;
+pub mod oauth;
 pub mod registry;
 
 use async_trait::async_trait;
@@ -26,6 +27,8 @@ pub struct ProviderCapabilities {
     pub requires_api_key: bool,
     /// Proveedor no oficial (sin API publica documentada). Se marca en la UI (§12).
     pub unofficial: bool,
+    /// Si puede conectar una cuenta por OAuth2 para descargar el original.
+    pub oauth: bool,
 }
 
 /// Resultado unificado de una busqueda online.
@@ -97,6 +100,11 @@ pub struct ResolvedDownload {
     pub suggested_extension: Option<String>,
     pub license: Option<SoundLicense>,
     pub attribution: Option<String>,
+    /// Cabeceras que la descarga necesita, como el `Authorization` de OAuth2.
+    ///
+    /// Van aparte de la URL porque un token en la query string terminaria en
+    /// los logs de cualquier proxy del camino.
+    pub headers: Vec<(String, String)>,
 }
 
 /// Errores que puede reportar un proveedor. Se traducen a mensajes accionables.
@@ -187,6 +195,11 @@ fn truncate(value: &str, max: usize) -> String {
 #[derive(Debug, Clone, Default)]
 pub struct ProviderContext {
     pub api_key: Option<String>,
+    /// Token OAuth2 ya vigente, si el usuario conecto su cuenta.
+    ///
+    /// El proveedor no lo renueva ni lo guarda: recibe uno usable o ninguno.
+    /// Refrescar exige tocar la base, y eso es responsabilidad del registro.
+    pub access_token: Option<String>,
 }
 
 /// Un proveedor de sonidos online.

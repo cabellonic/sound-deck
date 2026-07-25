@@ -20,6 +20,7 @@ pub const SLOT_CHANGED: &str = "slot-changed";
 pub const LIBRARY_CHANGED: &str = "library-changed";
 pub const SHORTCUT_TRIGGERED: &str = "shortcut-triggered";
 pub const OVERLAY_VISIBILITY_CHANGED: &str = "overlay-visibility-changed";
+pub const OVERLAY_PLACEMENT_CHANGED: &str = "overlay-placement-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
 pub const NOTICE: &str = "notice";
 

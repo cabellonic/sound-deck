@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/primitives';
+import { useTranslation } from '@/i18n/useTranslation';
 import { cn } from '@/lib/utils';
 import { SLOT_NUMBERS, type PageSummary, type SlotNumber, type SoundPage } from '@/types/domain';
 
@@ -42,6 +43,7 @@ export function AssignToSlotDialog({
   onSelectPage,
   onConfirm,
 }: AssignToSlotDialogProps) {
+  const { t } = useTranslation();
   const [pageId, setPageId] = useState<string | null>(defaultPageId);
 
   useEffect(() => {
@@ -63,16 +65,16 @@ export function AssignToSlotDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
         <DialogHeader
-          title="Asignar a un boton"
-          description={`Elegi la pagina y el boton para "${soundName}".`}
+          title={t('dialog.assignTitle')}
+          description={t('dialog.assignDescription', { name: soundName })}
         />
 
         <div className="flex flex-col gap-4 px-5 py-4">
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-fg-default">Pagina</span>
+            <span className="text-sm font-medium text-fg-default">{t('dialog.page')}</span>
             <Select value={pageId ?? undefined} onValueChange={handlePageChange}>
-              <SelectTrigger aria-label="Pagina de destino">
-                <SelectValue placeholder="Elegi una pagina" />
+              <SelectTrigger aria-label={t('dialog.pageTarget')}>
+                <SelectValue placeholder={t('dialog.choosePage')} />
               </SelectTrigger>
               <SelectContent>
                 {pages.map((page) => (
@@ -85,8 +87,12 @@ export function AssignToSlotDialog({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium text-fg-default">Boton</span>
-            <div className="grid grid-cols-3 gap-2" role="group" aria-label="Boton de destino">
+            <span className="text-sm font-medium text-fg-default">{t('dialog.button')}</span>
+            <div
+              className="grid grid-cols-3 gap-2"
+              role="group"
+              aria-label={t('dialog.buttonTarget')}
+            >
               {SLOT_NUMBERS.map((slotNumber) => {
                 const taken = occupied.has(slotNumber);
                 return (
@@ -110,21 +116,19 @@ export function AssignToSlotDialog({
                   >
                     <span className="font-mono font-semibold">{slotNumber}</span>
                     <span className="text-[10px] text-fg-subtle">
-                      {taken ? 'Ocupado' : 'Libre'}
+                      {taken ? t('dialog.slotTaken') : t('dialog.slotFree')}
                     </span>
                   </button>
                 );
               })}
             </div>
-            <p className="text-xs text-fg-subtle">
-              Elegir un boton ocupado reemplaza su asignacion actual.
-            </p>
+            <p className="text-xs text-fg-subtle">{t('dialog.replaceHint')}</p>
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Cancelar
+            {t('common.cancel')}
           </Button>
         </DialogFooter>
       </DialogContent>

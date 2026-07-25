@@ -67,6 +67,15 @@ impl AppPaths {
         self.root.join("database.sqlite")
     }
 
+    /// Base que espera para reemplazar a la actual en el proximo arranque.
+    ///
+    /// Restaurar no puede sobrescribir el archivo que la aplicacion tiene
+    /// abierto, asi que la copia elegida se deja aca y el reemplazo ocurre al
+    /// arrancar, antes de abrir nada.
+    pub fn database_restore_file(&self) -> PathBuf {
+        self.root.join("database.restore.sqlite")
+    }
+
     pub fn sounds_dir(&self) -> PathBuf {
         self.root.join("sounds")
     }

@@ -298,6 +298,7 @@ impl SoundProvider for MyInstantsProvider {
             requires_api_key: false,
             // Sin API oficial: la interfaz lo marca y avisa que puede romperse.
             unofficial: true,
+            oauth: false,
         }
     }
 
@@ -381,6 +382,7 @@ impl SoundProvider for MyInstantsProvider {
             suggested_extension: extension.or_else(|| Some("mp3".to_string())),
             license: None,
             attribution: item.attribution.clone(),
+            headers: Vec::new(),
         })
     }
 }

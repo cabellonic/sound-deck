@@ -12,6 +12,7 @@ use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use crate::domain::settings::{ShortcutAction, ShortcutBinding, ShortcutScope, ShortcutSettings};
+use crate::domain::SlotNumber;
 use crate::errors::{AppError, AppResult, ErrorKind};
 use crate::events::{self, ShortcutTriggeredPayload};
 
@@ -19,6 +20,8 @@ use crate::events::{self, ShortcutTriggeredPayload};
 #[derive(Default)]
 pub struct ShortcutRegistry {
     active: Mutex<Vec<(ShortcutAction, Shortcut)>>,
+    /// Los 1-9 globales, que no son acciones sino botones de la pagina activa.
+    slots: Mutex<Vec<(SlotNumber, Shortcut)>>,
 }
 
 impl ShortcutRegistry {
@@ -33,6 +36,15 @@ impl ShortcutRegistry {
             .iter()
             .find(|(_, registered)| registered == shortcut)
             .map(|(action, _)| *action)
+    }
+
+    /// Boton asociado a un atajo, cuando la reproduccion global esta activa.
+    pub fn slot_for(&self, shortcut: &Shortcut) -> Option<SlotNumber> {
+        self.slots
+            .lock()
+            .iter()
+            .find(|(_, registered)| registered == shortcut)
+            .map(|(slot, _)| *slot)
     }
 }
 
@@ -232,6 +244,7 @@ pub fn apply(
         tracing::warn!(%error, "no se pudieron liberar los atajos anteriores");
     }
     registry.active.lock().clear();
+    registry.slots.lock().clear();
 
     let mut report = RegistrationReport::default();
 
@@ -276,12 +289,59 @@ pub fn apply(
         }
     }
 
+    if settings.global_slot_playback {
+        apply_slots(manager, registry, settings, &mut report);
+    }
+
     tracing::info!(
         registrados = report.registered.len(),
         rechazados = report.rejected.len(),
         "atajos globales aplicados"
     );
     report
+}
+
+/// Registra los 1-9 globales con el modificador elegido.
+///
+/// Un boton que el sistema rechaza se informa igual que cualquier otro atajo,
+/// pero no cancela a los ocho restantes: perder el 3 no es motivo para quedarse
+/// sin la funcion entera.
+fn apply_slots<R: tauri::Runtime>(
+    manager: &tauri_plugin_global_shortcut::GlobalShortcut<R>,
+    registry: &ShortcutRegistry,
+    settings: &ShortcutSettings,
+    report: &mut RegistrationReport,
+) {
+    for slot in SlotNumber::all() {
+        let number = slot.get();
+        let accelerator = settings.slot_modifier.accelerator_for(number);
+
+        let Ok(shortcut) = Shortcut::from_str(&accelerator) else {
+            continue;
+        };
+
+        match manager.register(shortcut) {
+            Ok(()) => {
+                registry.slots.lock().push((slot, shortcut));
+                report.registered.push(accelerator);
+            }
+            Err(error) => {
+                tracing::warn!(
+                    slot = number,
+                    accelerator = %accelerator,
+                    %error,
+                    "el sistema rechazo el atajo global de un boton"
+                );
+                report.rejected.push(RejectedShortcut {
+                    action: format!("slot_{number}"),
+                    accelerator,
+                    message: format!(
+                        "Otra aplicacion ya esta usando este atajo para el boton {number}."
+                    ),
+                });
+            }
+        }
+    }
 }
 
 /// Notifica al frontend que se disparo un atajo global.

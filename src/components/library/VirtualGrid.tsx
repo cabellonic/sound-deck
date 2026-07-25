@@ -1,11 +1,11 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
+import { columnsForWidth } from './columns';
+
 /** Alto estimado antes de medir; las filas reales pueden ser mas altas. */
 const ROW_HEIGHT = 64;
 const ROW_GAP = 6;
-/** Ancho a partir del cual entran dos elementos por fila comodamente. */
-const TWO_COLUMN_BREAKPOINT = 620;
 
 export interface VirtualGridProps<T> {
   items: T[];
@@ -16,7 +16,7 @@ export interface VirtualGridProps<T> {
 }
 
 /**
- * Lista virtualizada que muestra una o dos columnas segun el ancho (§9).
+ * Lista virtualizada que muestra entre una y tres columnas segun el ancho (§9).
  *
  * Virtualizamos por fila: con miles de sonidos solo se montan los visibles.
  */
@@ -28,7 +28,7 @@ export function VirtualGrid<T>({ items, keyOf, renderItem, empty }: VirtualGridP
     const element = scrollRef.current;
     if (!element) return;
 
-    const update = (width: number) => setColumns(width >= TWO_COLUMN_BREAKPOINT ? 2 : 1);
+    const update = (width: number) => setColumns(columnsForWidth(width));
     update(element.clientWidth);
 
     // `ResizeObserver` no existe en algunos entornos de test.

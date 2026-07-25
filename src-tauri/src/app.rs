@@ -10,14 +10,20 @@ use crate::events::{self, NoticeLevel};
 use crate::filesystem::AppPaths;
 use crate::overlay::{self, MAIN_LABEL, OVERLAY_LABEL};
 use crate::state::AppState;
-use crate::{command_handlers, logging, shortcuts, tray};
+use crate::{autostart, command_handlers, logging, shortcuts, tray};
 
 /// Arranca Sound Deck.
 pub fn run() {
     let builder = tauri::Builder::default()
         // Single instance debe ser el primer plugin: si ya hay una instancia,
         // este callback corre en ella y el proceso nuevo termina (§6).
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
+            // Si la segunda instancia la lanzo el arranque del sistema, el
+            // usuario no pidio nada: dejamos la aplicacion donde estaba.
+            if autostart::contains_autostart_arg(args) {
+                tracing::info!("arranque automatico con la aplicacion ya abierta: se ignora");
+                return;
+            }
             tracing::info!("segunda instancia detectada: se enfoca la ventana existente");
             if let Err(error) = overlay::focus_main_window(app) {
                 tracing::warn!(technical = ?error.technical, "no se pudo enfocar la instancia existente");
@@ -25,9 +31,11 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        // El argumento viaja a la entrada de arranque del sistema: es lo que
+        // despues nos permite arrancar escondidos en la bandeja.
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
-            None,
+            Some(vec![autostart::AUTOSTART_ARG]),
         ))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
@@ -38,6 +46,8 @@ pub fn run() {
                     let state = app.state::<AppState>();
                     if let Some(action) = state.shortcuts.action_for(shortcut) {
                         handle_global_shortcut(app, action);
+                    } else if let Some(slot) = state.shortcuts.slot_for(shortcut) {
+                        handle_global_slot(app, slot);
                     }
                 })
                 .build(),
@@ -80,10 +90,35 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         "Sound Deck iniciado"
     );
 
+    // Una restauracion pendiente se aplica aca, con la base todavia cerrada.
+    let restored_from = match crate::library::apply_pending_restore(&paths) {
+        Ok(previous) => previous,
+        Err(error) => {
+            tracing::error!(technical = ?error.technical, "no se pudo restaurar la copia de seguridad");
+            events::notify(app, NoticeLevel::Error, error.message);
+            None
+        }
+    };
+
     let db = Database::open(&paths.database_file())?;
     db.ensure_initial_state()?;
 
-    let settings = settings_repo::load(&db)?;
+    if let Some(previous) = restored_from {
+        events::notify(
+            app,
+            NoticeLevel::Info,
+            format!(
+                "Biblioteca restaurada. La anterior quedo guardada en {}.",
+                previous.display()
+            ),
+        );
+    }
+
+    let mut settings = settings_repo::load(&db)?;
+
+    // El interruptor de Ajustes tiene que reflejar lo que realmente configuro
+    // el sistema, no lo que creiamos la ultima vez.
+    autostart::reconcile(app, &db, &mut settings.general);
 
     if let Some(handle) = log_handle {
         // Recien ahora sabemos que nivel quiere el usuario.
@@ -142,6 +177,17 @@ fn setup(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     tray::build(app)?;
 
+    // La ventana nace oculta (`visible: false` en la configuracion) para que el
+    // arranque con el sistema no interrumpa el inicio de sesion con una ventana
+    // en la cara. En un arranque normal la mostramos aca; con la bandeja ya
+    // construida, para que nunca queden las dos cosas invisibles a la vez.
+    if autostart::launched_by_system() {
+        tracing::info!("arranque automatico: la aplicacion queda en la bandeja");
+    } else if let Err(error) = overlay::focus_main_window(app) {
+        tracing::error!(technical = ?error.technical, "no se pudo mostrar la ventana principal");
+        return Err(Box::new(error));
+    }
+
     Ok(())
 }
 
@@ -171,6 +217,31 @@ fn handle_global_shortcut(app: &AppHandle, action: ShortcutAction) {
     shortcuts::emit_triggered(app, action);
 }
 
+/// Reproduce un boton de la pagina activa desde un atajo global (§43).
+///
+/// La pagina activa la comparten la ventana principal y el overlay, asi que
+/// esto suena lo mismo que veria el usuario si abriera cualquiera de las dos.
+fn handle_global_slot(app: &AppHandle, slot: crate::domain::SlotNumber) {
+    let Some(page_id) = app.state::<AppState>().active_page() else {
+        tracing::debug!(
+            slot = slot.get(),
+            "no hay pagina activa para el atajo global"
+        );
+        return;
+    };
+
+    // Reusa el comando: el volumen efectivo y el modo de reproduccion tienen
+    // que resolverse igual que cuando se aprieta el boton con el mouse.
+    if let Err(error) = crate::commands::playback::play_slot(app.state(), page_id, slot) {
+        tracing::warn!(
+            slot = slot.get(),
+            technical = ?error.technical,
+            "fallo la reproduccion desde un atajo global"
+        );
+        events::notify(app, NoticeLevel::Warning, error.message);
+    }
+}
+
 /// Cierre a bandeja y cierre del overlay al perder el foco (§6, §16).
 fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
     let app = window.app_handle();
@@ -179,6 +250,24 @@ fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
     };
 
     match (window.label(), event) {
+        // No existe un evento de minimizado: en Windows y Linux minimizar llega
+        // como un `Resized`, asi que preguntamos por el estado de la ventana.
+        (MAIN_LABEL, WindowEvent::Resized(_)) => {
+            if !window.is_minimized().unwrap_or(false) {
+                return;
+            }
+
+            let minimize_to_tray = state
+                .settings()
+                .map(|settings| settings.general.minimize_to_tray)
+                .unwrap_or(true);
+
+            if minimize_to_tray && window.is_visible().unwrap_or(true) {
+                if let Err(error) = window.hide() {
+                    tracing::warn!(%error, "no se pudo ocultar la ventana al minimizar");
+                }
+            }
+        }
         (MAIN_LABEL, WindowEvent::CloseRequested { api, .. }) => {
             let close_to_tray = state
                 .settings()
@@ -194,10 +283,13 @@ fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
             }
         }
         (OVERLAY_LABEL, WindowEvent::Focused(false)) => {
-            let close_on_blur = state
-                .settings()
-                .map(|settings| settings.general.close_overlay_on_blur)
-                .unwrap_or(true);
+            // Mientras se lo esta colocando el foco vive en Ajustes: cerrarlo
+            // ahi seria imposible terminar de moverlo.
+            let close_on_blur = !state.overlay.is_placing()
+                && state
+                    .settings()
+                    .map(|settings| settings.general.close_overlay_on_blur)
+                    .unwrap_or(true);
 
             if close_on_blur {
                 if let Err(error) = overlay::hide(app, &state.overlay) {

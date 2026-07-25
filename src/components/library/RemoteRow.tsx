@@ -3,9 +3,11 @@ import { Check, Download, ExternalLink, ListPlus, Loader2, Pause, Play } from 'l
 import { Button } from '@/components/ui/Button';
 import { Tooltip } from '@/components/ui/primitives';
 import { useDragSource } from '@/features/dnd';
+import { categoryKey } from '@/i18n';
+import { useTranslation } from '@/i18n/useTranslation';
 import { cn, formatBytes, formatDuration } from '@/lib/utils';
 import type { DownloadState } from '@/stores/useUiStore';
-import { CATEGORY_LABELS, type RemoteSound } from '@/types/domain';
+import type { RemoteSound } from '@/types/domain';
 
 /** Estados visibles de un resultado online (§13). */
 export type RemoteItemStatus =
@@ -16,6 +18,10 @@ export interface RemoteRowProps {
   status: RemoteItemStatus;
   download: DownloadState | undefined;
   errorMessage?: string;
+  /** Id local del audio si este resultado ya se descargo, para poder ponerle imagen. */
+  savedSoundId: string | undefined;
+  /** `true` mientras hay una imagen del sistema sobrevolando esta fila. */
+  isImageDropTarget: boolean;
   onTogglePreview: (item: RemoteSound) => void;
   onDownload: (item: RemoteSound) => void;
   onAssign: (item: RemoteSound) => void;
@@ -27,14 +33,21 @@ export function RemoteRow({
   status,
   download,
   errorMessage,
+  savedSoundId,
+  isImageDropTarget,
   onTogglePreview,
   onDownload,
   onAssign,
   onOpenSource,
 }: RemoteRowProps) {
+  const { t } = useTranslation();
   const duration = formatDuration(item.durationMs ?? null);
   const canPreview = Boolean(item.previewUrl);
-  const isBusy = status === 'downloading' || status === 'loading-preview';
+  // Bajar el audio a la biblioteca bloquea arrastrarlo y volver a bajarlo.
+  // Cargar una preview no: es una espera corta y cancelable que no impide
+  // arrastrar el resultado a un boton mientras tanto.
+  const isDownloading = status === 'downloading';
+  const isLoadingPreview = status === 'loading-preview';
 
   const progress =
     download && download.totalBytes
@@ -43,7 +56,7 @@ export function RemoteRow({
 
   const { onPointerDown } = useDragSource(
     () =>
-      isBusy
+      isDownloading
         ? null
         : { kind: 'remote-sound', providerId: item.providerId, remoteId: item.remoteId },
     item.title,
@@ -52,30 +65,39 @@ export function RemoteRow({
   return (
     <div
       onPointerDown={onPointerDown}
+      // Soltar una imagen aca tambien funciona: si el audio ya se descargo se
+      // le asigna, y si no, primero se ofrece descargarlo (§10).
+      data-sound-drop="remote"
+      data-provider-id={item.providerId}
+      data-remote-id={item.remoteId}
+      data-sound-name={item.title}
+      data-saved-sound-id={savedSoundId}
       className={cn(
         'group relative flex items-center gap-2 overflow-hidden rounded-md border',
         'border-border-subtle bg-surface-1 px-2.5 py-2 transition-colors',
         'hover:border-border-strong hover:bg-surface-2',
-        !isBusy && 'cursor-grab active:cursor-grabbing',
+        !isDownloading && 'cursor-grab active:cursor-grabbing',
         status === 'saved' && 'border-success/50',
         status === 'error' && 'border-danger/50',
+        isImageDropTarget && 'border-accent ring-2 ring-inset ring-accent',
       )}
     >
       <Button
         size="icon"
         variant="ghost"
         onClick={() => onTogglePreview(item)}
-        disabled={!canPreview || status === 'downloading'}
+        disabled={!canPreview || isDownloading}
         aria-label={
           canPreview
-            ? status === 'previewing'
-              ? `Detener ${item.title}`
-              : `Previsualizar ${item.title}`
-            : `${item.title} no ofrece previsualizacion`
+            ? // Cargando, el boton cancela: decir "previsualizar" seria mentir.
+              status === 'previewing' || isLoadingPreview
+              ? t('sound.stopPreview', { name: item.title })
+              : t('sound.preview', { name: item.title })
+            : t('remote.noPreview', { name: item.title })
         }
         className={cn('shrink-0', status === 'previewing' && 'text-accent')}
       >
-        {status === 'loading-preview' ? (
+        {isLoadingPreview ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
         ) : status === 'previewing' ? (
           <Pause className="h-4 w-4" aria-hidden />
@@ -92,7 +114,7 @@ export function RemoteRow({
           <span className="capitalize">{item.providerId}</span>
           {duration ? <span className="font-mono tabular-nums">{duration}</span> : null}
           {item.fileSizeBytes ? <span>{formatBytes(item.fileSizeBytes)}</span> : null}
-          {item.normalizedCategory ? <span>{CATEGORY_LABELS[item.normalizedCategory]}</span> : null}
+          {item.normalizedCategory ? <span>{t(categoryKey(item.normalizedCategory))}</span> : null}
           {item.license ? (
             <Tooltip content={item.attribution ?? item.license.name}>
               <span className="rounded bg-surface-3 px-1 py-px">{item.license.code}</span>
@@ -110,19 +132,19 @@ export function RemoteRow({
       {status === 'saved' ? (
         <span className="flex shrink-0 items-center gap-1 text-[11px] text-success">
           <Check className="h-3.5 w-3.5" aria-hidden />
-          Guardado
+          {t('remote.saved')}
         </span>
       ) : null}
 
       {/* Orden: origen, asignar, descargar. La descarga va ultima y siempre
           visible, porque es la accion principal de la fila. */}
       {item.sourcePageUrl ? (
-        <Tooltip content="Abrir pagina de origen">
+        <Tooltip content={t('remote.openSource')}>
           <Button
             size="icon"
             variant="ghost"
             onClick={() => onOpenSource(item)}
-            aria-label={`Abrir la pagina de origen de ${item.title}`}
+            aria-label={t('remote.openSourceLabel', { name: item.title })}
             className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
           >
             <ExternalLink className="h-4 w-4" aria-hidden />
@@ -130,26 +152,26 @@ export function RemoteRow({
         </Tooltip>
       ) : null}
 
-      <Tooltip content="Descargar y asignar a un boton">
+      <Tooltip content={t('remote.assign')}>
         <Button
           size="icon"
           variant="ghost"
           onClick={() => onAssign(item)}
-          disabled={isBusy}
-          aria-label={`Asignar ${item.title} a un boton`}
+          disabled={isDownloading}
+          aria-label={t('sound.assignToLabel', { name: item.title })}
           className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
         >
           <ListPlus className="h-4 w-4" aria-hidden />
         </Button>
       </Tooltip>
 
-      <Tooltip content="Descargar y guardar en la biblioteca">
+      <Tooltip content={t('remote.download')}>
         <Button
           size="icon"
           variant="ghost"
           onClick={() => onDownload(item)}
-          disabled={isBusy}
-          aria-label={`Descargar ${item.title}`}
+          disabled={isDownloading}
+          aria-label={t('remote.downloadLabel', { name: item.title })}
           className="shrink-0"
         >
           {status === 'downloading' ? (
@@ -167,7 +189,7 @@ export function RemoteRow({
           aria-valuenow={Math.round(progress * 100)}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label={`Descargando ${item.title}`}
+          aria-label={t('remote.downloading', { name: item.title })}
         >
           <div
             className="h-full bg-accent transition-[width]"

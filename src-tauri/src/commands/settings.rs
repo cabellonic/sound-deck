@@ -2,6 +2,7 @@
 
 use tauri::{AppHandle, State};
 
+use crate::autostart;
 use crate::database::settings as settings_repo;
 use crate::domain::settings::{
     AppSettings, SettingsPatch, ShortcutAction, ShortcutBinding, ShortcutScope, ShortcutSettings,
@@ -22,8 +23,33 @@ pub fn update_settings(
     state: State<'_, AppState>,
     patch: SettingsPatch,
 ) -> AppResult<AppSettings> {
+    // El arranque con el sistema no es un campo mas: vive en el registro. Un
+    // parche que lo cambie tiene que tocar el sistema antes de persistir, o la
+    // base terminaria afirmando algo que no es cierto.
+    if let Some(general) = patch.general.as_ref() {
+        let stored = state.settings()?.general.start_with_system;
+        if general.start_with_system != stored {
+            autostart::set_enabled(&app, general.start_with_system)?;
+        }
+    }
+
+    let touches_shortcuts = patch.shortcuts.is_some();
     let settings = settings_repo::apply_patch(&state.db, patch)?;
     apply_log_level(&app, &settings);
+
+    // Activar los 1-9 globales tiene que tomar efecto ya, no en el proximo
+    // arranque. Volver a aplicar es idempotente: libera todo y registra de cero.
+    if touches_shortcuts {
+        let report = shortcuts::apply(&app, &state.shortcuts, &settings.shortcuts);
+        for rejected in &report.rejected {
+            events::notify(
+                &app,
+                crate::events::NoticeLevel::Warning,
+                format!("{} ({}).", rejected.message, rejected.accelerator),
+            );
+        }
+    }
+
     events::emit(&app, events::SETTINGS_CHANGED, settings.clone());
     Ok(settings)
 }
@@ -39,6 +65,12 @@ fn apply_log_level(app: &AppHandle, settings: &AppSettings) {
 
 #[tauri::command(async)]
 pub fn reset_settings(app: AppHandle, state: State<'_, AppState>) -> AppResult<AppSettings> {
+    // Restablecer apaga el inicio automatico: hay que sacarlo tambien del
+    // sistema, no solo de la base.
+    if state.settings()?.general.start_with_system {
+        autostart::set_enabled(&app, false)?;
+    }
+
     let settings = settings_repo::reset(&state.db)?;
     apply_log_level(&app, &settings);
     shortcuts::apply(&app, &state.shortcuts, &settings.shortcuts);
@@ -177,28 +209,18 @@ pub fn list_shortcut_actions(state: State<'_, AppState>) -> AppResult<Vec<Shortc
 }
 
 /// Configura el arranque con el sistema a traves del plugin de autostart.
+///
+/// Primero el sistema y recien despues la base: si el registro rechaza el
+/// cambio, lo guardado sigue siendo verdad y el interruptor no miente.
 #[tauri::command(async)]
 pub fn set_autostart(app: AppHandle, state: State<'_, AppState>, enabled: bool) -> AppResult<bool> {
-    use tauri_plugin_autostart::ManagerExt;
-
-    let manager = app.autolaunch();
-    let result = if enabled {
-        manager.enable()
-    } else {
-        manager.disable()
-    };
-
-    if let Err(error) = result {
-        return Err(AppError::new(
-            crate::errors::ErrorKind::Configuration,
-            "No se pudo cambiar el inicio automatico con el sistema.",
-        )
-        .with_technical(error.to_string()));
-    }
+    autostart::set_enabled(&app, enabled)?;
 
     let mut settings = state.settings()?;
     settings.general.start_with_system = enabled;
-    settings_repo::save(&state.db, &settings)?;
+    settings_repo::save_general(&state.db, &settings.general)?;
+
+    events::emit(&app, events::SETTINGS_CHANGED, settings);
 
     Ok(enabled)
 }

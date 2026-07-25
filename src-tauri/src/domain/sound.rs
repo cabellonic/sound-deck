@@ -39,6 +39,18 @@ pub struct SoundLicense {
     pub url: Option<String>,
 }
 
+/// Donde esta usado un sonido: pagina y numero de boton (§9).
+///
+/// Sirve para dos cosas: avisar que botones se van a vaciar antes de borrar un
+/// audio, y mostrar en la biblioteca donde esta asignado el que solo esta en uno.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundUsage {
+    pub page_id: String,
+    pub page_name: String,
+    pub slot_number: u8,
+}
+
 /// Sonido tal como lo consume el frontend (DTO).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -72,6 +84,11 @@ pub struct Sound {
     pub file_available: bool,
     /// Cantidad de slots que apuntan a este sonido.
     pub assigned_slot_count: i64,
+    /// El unico slot que lo usa, cuando `assigned_slot_count == 1`. Permite
+    /// decir "En Principal - boton 3" en lugar de "En 1 boton".
+    pub assigned_slot: Option<SoundUsage>,
+    /// Sonoridad medida en LUFS. `None` si todavia no se midio (§18).
+    pub loudness_lufs: Option<f32>,
 }
 
 /// Fila completa tal como vive en SQLite. Incluye campos que no salen al frontend
@@ -105,6 +122,9 @@ pub struct SoundRecord {
     pub last_played_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Sonoridad integrada (EBU R128) y pico. `None` mientras no se midio.
+    pub loudness_lufs: Option<f32>,
+    pub peak_amplitude: Option<f32>,
 }
 
 impl SoundRecord {
@@ -138,6 +158,7 @@ impl SoundRecord {
         tags: Vec<String>,
         file_available: bool,
         assigned_slot_count: i64,
+        assigned_slot: Option<SoundUsage>,
     ) -> Sound {
         Sound {
             source: self.source(),
@@ -160,8 +181,10 @@ impl SoundRecord {
             play_count: self.play_count,
             last_played_at: self.last_played_at,
             created_at: self.created_at,
+            loudness_lufs: self.loudness_lufs,
             file_available,
             assigned_slot_count,
+            assigned_slot,
         }
     }
 }

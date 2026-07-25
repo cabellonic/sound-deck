@@ -17,7 +17,7 @@ const SLOT_QUERY: &str = "SELECT
         s.source_type, s.provider_id, s.remote_id, s.source_page_url, s.provider_category,
         s.normalized_category, s.license_code, s.license_name, s.license_url, s.attribution,
         s.custom_volume AS sound_volume, s.image_path, s.play_count, s.last_played_at, s.created_at,
-        s.file_path,
+        s.file_path, s.loudness_lufs,
         (SELECT COUNT(*) FROM slots o WHERE o.sound_id = s.id) AS assigned_slots,
         (SELECT COALESCE(GROUP_CONCAT(tag, char(31)), '')
            FROM sound_tags WHERE sound_tags.sound_id = s.id) AS tag_list
@@ -85,7 +85,12 @@ fn row_to_slot(row: &Row<'_>) -> rusqlite::Result<SoundSlot> {
                 last_played_at: row.get("last_played_at")?,
                 created_at: row.get("created_at")?,
                 file_available: Path::new(&file_path).is_file(),
+                loudness_lufs: row.get("loudness_lufs")?,
                 assigned_slot_count: row.get("assigned_slots")?,
+                // El detalle de "donde esta asignado" solo lo completa la
+                // busqueda de la biblioteca, que es el unico lugar que lo
+                // muestra. Aca el sonido ya se esta viendo dentro de su boton.
+                assigned_slot: None,
             })
         }
     };

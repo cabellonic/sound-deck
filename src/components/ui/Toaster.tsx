@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 
 import type { NoticeLevel } from '@/lib/events';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/i18n/useTranslation';
 import { useUiStore, type Toast } from '@/stores/useUiStore';
 
 const ICONS: Record<NoticeLevel, typeof Info> = {
@@ -28,6 +29,7 @@ const DURATIONS: Record<NoticeLevel, number | null> = {
 };
 
 function ToastItem({ toast }: { toast: Toast }) {
+  const { t } = useTranslation();
   const dismiss = useUiStore((state) => state.dismissToast);
   const Icon = ICONS[toast.level];
 
@@ -51,7 +53,7 @@ function ToastItem({ toast }: { toast: Toast }) {
       <button
         type="button"
         onClick={() => dismiss(toast.id)}
-        aria-label="Cerrar aviso"
+        aria-label={t('toast.closeNotice')}
         className="rounded p-0.5 text-fg-subtle transition-colors hover:bg-surface-3 hover:text-fg-default"
       >
         <X className="h-3.5 w-3.5" aria-hidden />

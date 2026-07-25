@@ -175,7 +175,22 @@ pub fn ingest(
     };
 
     match sounds::insert(db, new_sound) {
-        Ok(sound) => Ok(IngestOutcome::Created(sound)),
+        Ok(sound) => {
+            // Medir es caro pero se hace una sola vez, y ya estamos en un hilo
+            // de blocking con el archivo decodificado hace un momento. Que
+            // falle no invalida la importacion: el audio entra igual, sin medir.
+            match crate::audio::measure_file(&final_path) {
+                Ok(loudness) => {
+                    if let Err(error) = sounds::save_loudness(db, &sound.id, loudness) {
+                        tracing::warn!(technical = ?error.technical, "no se pudo guardar la sonoridad");
+                    }
+                }
+                Err(error) => {
+                    tracing::warn!(technical = ?error.technical, "no se pudo medir la sonoridad");
+                }
+            }
+            Ok(IngestOutcome::Created(sound))
+        }
         Err(error) => {
             // Rollback del lado del filesystem.
             if let Err(cleanup) = std::fs::remove_file(&final_path) {
@@ -431,6 +446,167 @@ pub fn backup_database(paths: &AppPaths) -> AppResult<PathBuf> {
     let destination = paths.backups_dir().join(format!("database-{stamp}.sqlite"));
     std::fs::copy(&source, &destination)?;
     Ok(destination)
+}
+
+/// Cuantos audios se midieron y cuantos no se pudieron medir.
+#[derive(Debug, Default, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoudnessReport {
+    pub measured: usize,
+    pub failed: usize,
+}
+
+/// Mide los audios que entraron a la biblioteca antes de que existiera la
+/// normalizacion. Es bloqueante y puede tardar: decodifica cada archivo entero.
+pub fn measure_pending_loudness(db: &Database, paths: &AppPaths) -> AppResult<LoudnessReport> {
+    let mut report = LoudnessReport::default();
+
+    for (sound_id, file_path) in sounds::pending_loudness(db)? {
+        // Un archivo que ya no esta no es un error de esta operacion: para eso
+        // esta la limpieza de huerfanos.
+        if paths.assert_managed(&file_path).is_err() || !file_path.is_file() {
+            report.failed += 1;
+            continue;
+        }
+
+        match crate::audio::measure_file(&file_path) {
+            Ok(loudness) => match sounds::save_loudness(db, &sound_id, loudness) {
+                Ok(()) => report.measured += 1,
+                Err(error) => {
+                    tracing::warn!(sound_id, technical = ?error.technical, "no se pudo guardar la sonoridad");
+                    report.failed += 1;
+                }
+            },
+            Err(error) => {
+                tracing::warn!(sound_id, technical = ?error.technical, "no se pudo medir la sonoridad");
+                report.failed += 1;
+            }
+        }
+    }
+
+    tracing::info!(
+        medidos = report.measured,
+        fallidos = report.failed,
+        "medicion de sonoridad terminada"
+    );
+    Ok(report)
+}
+
+/// Deja una copia de seguridad lista para reemplazar a la base actual.
+///
+/// No se restaura en el momento: la aplicacion tiene la base abierta y en
+/// Windows ni siquiera se puede sobrescribir un archivo en uso. La copia queda
+/// en `database.restore.sqlite` y el reemplazo lo hace `apply_pending_restore`
+/// en el proximo arranque, antes de abrir nada.
+///
+/// Valida antes de copiar: restaurar un archivo que no es una base nuestra
+/// dejaria la aplicacion sin arrancar, y ahi ya no hay interfaz para arreglarlo.
+pub fn stage_restore(paths: &AppPaths, source: &Path) -> AppResult<()> {
+    let version = inspect_backup(source)?;
+    tracing::info!(
+        version,
+        source = %source.display(),
+        "copia de seguridad validada, queda pendiente de restaurar"
+    );
+
+    std::fs::copy(source, paths.database_restore_file())?;
+    Ok(())
+}
+
+/// Cancela una restauracion que todavia no se aplico.
+pub fn cancel_pending_restore(paths: &AppPaths) -> AppResult<bool> {
+    let pending = paths.database_restore_file();
+    if !pending.is_file() {
+        return Ok(false);
+    }
+    std::fs::remove_file(&pending)?;
+    Ok(true)
+}
+
+/// Version de esquema de una copia, si es una base de Sound Deck que podemos abrir.
+fn inspect_backup(source: &Path) -> AppResult<i64> {
+    if !source.is_file() {
+        return Err(AppError::not_found("Ese archivo ya no existe."));
+    }
+
+    let invalid = |detail: &str| {
+        AppError::validation("Ese archivo no es una copia de seguridad de Sound Deck.")
+            .with_technical(detail.to_string())
+    };
+
+    let connection = rusqlite::Connection::open_with_flags(
+        source,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|error| invalid(&error.to_string()))?;
+
+    for table in ["sounds", "pages", "slots", "settings", "schema_migrations"] {
+        let exists: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [table],
+                |row| row.get(0),
+            )
+            .map_err(|error| invalid(&error.to_string()))?;
+        if exists == 0 {
+            return Err(invalid(&format!("falta la tabla {table}")));
+        }
+    }
+
+    let version: i64 = connection
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| invalid(&error.to_string()))?;
+
+    // Una copia de una version mas nueva puede tener columnas que esta no
+    // entiende. Migrar hacia atras no existe, asi que se rechaza de frente.
+    let supported = crate::database::migrations::latest_version();
+    if version > supported {
+        return Err(AppError::validation(format!(
+            "Esa copia es de una version mas nueva de Sound Deck (esquema {version}, esta version entiende hasta {supported}). Actualiza la aplicacion para poder restaurarla."
+        )));
+    }
+
+    Ok(version)
+}
+
+/// Aplica una restauracion pendiente. Se llama al arrancar, antes de abrir la base.
+///
+/// Devuelve la ruta de la copia de seguridad que se guardo de la base anterior,
+/// para poder informarla: reemplazar la biblioteca de alguien sin dejarle una
+/// vuelta atras no es aceptable.
+pub fn apply_pending_restore(paths: &AppPaths) -> AppResult<Option<PathBuf>> {
+    let pending = paths.database_restore_file();
+    if !pending.is_file() {
+        return Ok(None);
+    }
+
+    let current = paths.database_file();
+    let previous = if current.is_file() {
+        Some(backup_database(paths)?)
+    } else {
+        None
+    };
+
+    // WAL y el indice compartido pertenecen a la base que se va: dejarlos seria
+    // mezclar transacciones de una base con el contenido de otra.
+    for sidecar in ["-wal", "-shm"] {
+        let path = PathBuf::from(format!("{}{sidecar}", current.display()));
+        if path.is_file() {
+            std::fs::remove_file(&path)?;
+        }
+    }
+
+    std::fs::rename(&pending, &current)?;
+    tracing::info!(
+        previous = ?previous.as_ref().map(|path| path.display().to_string()),
+        "base de datos restaurada desde una copia de seguridad"
+    );
+
+    Ok(previous)
 }
 
 /// Extensiones aceptadas, para el filtro del dialogo nativo.
@@ -723,5 +899,152 @@ mod tests {
     fn rechaza_rutas_relativas() {
         assert!(normalize_input_path("relativa/audio.mp3").is_err());
         assert!(normalize_input_path("../../etc/passwd").is_err());
+    }
+
+    /// Crea una base real en disco, que es lo unico que sirve para probar la
+    /// restauracion: el archivo tiene que existir y tener nuestro esquema.
+    fn base_en_disco(ruta: &Path, nombre_pagina: &str) {
+        let db = Database::open(ruta).unwrap();
+        db.ensure_initial_state().unwrap();
+        let pagina = crate::database::pages::first(&db).unwrap().unwrap();
+        crate::database::pages::rename(&db, &pagina.id, nombre_pagina).unwrap();
+    }
+
+    #[test]
+    fn restaurar_reemplaza_la_base_y_deja_la_anterior_a_salvo() {
+        let e = entorno();
+        base_en_disco(&e.paths.database_file(), "La de antes");
+
+        let copia = e.origen.path().join("database-vieja.sqlite");
+        base_en_disco(&copia, "La restaurada");
+
+        stage_restore(&e.paths, &copia).unwrap();
+        // Hasta que no se arranque de nuevo, la base activa sigue siendo la de antes.
+        assert!(e.paths.database_restore_file().is_file());
+
+        let anterior = apply_pending_restore(&e.paths).unwrap().unwrap();
+
+        let db = Database::open(&e.paths.database_file()).unwrap();
+        let pagina = crate::database::pages::first(&db).unwrap().unwrap();
+        assert_eq!(pagina.name, "La restaurada");
+
+        // La biblioteca anterior no se pierde: queda una copia con su nombre.
+        assert!(anterior.is_file());
+        let vieja = Database::open(&anterior).unwrap();
+        assert_eq!(
+            crate::database::pages::first(&vieja).unwrap().unwrap().name,
+            "La de antes"
+        );
+
+        // Y la pendiente se consumio: no se vuelve a aplicar en cada arranque.
+        assert!(!e.paths.database_restore_file().is_file());
+        assert!(apply_pending_restore(&e.paths).unwrap().is_none());
+    }
+
+    #[test]
+    fn no_acepta_como_copia_algo_que_no_es_una_base_nuestra() {
+        let e = entorno();
+
+        let cualquiera = e.origen.path().join("foto.sqlite");
+        std::fs::write(&cualquiera, b"esto no es una base de datos").unwrap();
+        assert!(stage_restore(&e.paths, &cualquiera).is_err());
+
+        // Una base de SQLite valida pero de otra aplicacion tampoco sirve.
+        let ajena = e.origen.path().join("ajena.sqlite");
+        let connection = rusqlite::Connection::open(&ajena).unwrap();
+        connection
+            .execute_batch("CREATE TABLE cosas (id TEXT);")
+            .unwrap();
+        drop(connection);
+        assert!(stage_restore(&e.paths, &ajena).is_err());
+
+        assert!(stage_restore(&e.paths, &e.origen.path().join("no-existe.sqlite")).is_err());
+
+        // Ningun rechazo deja una restauracion a medias esperando el arranque.
+        assert!(!e.paths.database_restore_file().is_file());
+    }
+
+    #[test]
+    fn rechaza_una_copia_de_una_version_mas_nueva() {
+        let e = entorno();
+        let futura = e.origen.path().join("futura.sqlite");
+        base_en_disco(&futura, "Del futuro");
+
+        let connection = rusqlite::Connection::open(&futura).unwrap();
+        connection
+            .execute(
+                "INSERT INTO schema_migrations (version, name, applied_at)
+                 VALUES (?1, 'del_futuro', 'now')",
+                [crate::database::migrations::latest_version() + 1],
+            )
+            .unwrap();
+        drop(connection);
+
+        let error = stage_restore(&e.paths, &futura).unwrap_err();
+        assert!(error.message.contains("mas nueva"), "{}", error.message);
+        assert!(!e.paths.database_restore_file().is_file());
+    }
+
+    #[test]
+    fn importar_deja_el_audio_medido_y_listo_para_normalizar() {
+        let e = entorno();
+        let origen = archivo(&e, "medido.wav", 7);
+
+        let resultado =
+            ingest(&e.db, &e.paths, IngestRequest::local_import(origen), LIMITE).unwrap();
+        let sonido = resultado.sound();
+
+        let medida = sounds::loudness_of(&e.db, &sonido.id).unwrap().unwrap();
+        assert!(
+            medida.peak > 0.0,
+            "un audio con contenido no puede tener pico 0"
+        );
+        assert!(medida.lufs.is_finite());
+
+        // Y no queda nada pendiente de medir.
+        assert!(sounds::pending_loudness(&e.db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn medir_la_biblioteca_alcanza_a_los_audios_que_entraron_sin_medicion() {
+        let e = entorno();
+        let origen = archivo(&e, "viejo.wav", 8);
+        let sonido = ingest(&e.db, &e.paths, IngestRequest::local_import(origen), LIMITE)
+            .unwrap()
+            .sound()
+            .clone();
+
+        // Simulamos un audio de antes de que existiera la normalizacion.
+        {
+            let connection = e.db.lock();
+            connection
+                .execute(
+                    "UPDATE sounds SET loudness_lufs = NULL, peak_amplitude = NULL WHERE id = ?1",
+                    [&sonido.id],
+                )
+                .unwrap();
+        }
+        assert_eq!(sounds::pending_loudness(&e.db).unwrap().len(), 1);
+
+        let reporte = measure_pending_loudness(&e.db, &e.paths).unwrap();
+        assert_eq!(reporte.measured, 1);
+        assert_eq!(reporte.failed, 0);
+        assert!(sounds::loudness_of(&e.db, &sonido.id).unwrap().is_some());
+
+        // Correrlo de nuevo no vuelve a medir lo ya medido.
+        let repetido = measure_pending_loudness(&e.db, &e.paths).unwrap();
+        assert_eq!(repetido.measured, 0);
+    }
+
+    #[test]
+    fn se_puede_cancelar_una_restauracion_pendiente() {
+        let e = entorno();
+        let copia = e.origen.path().join("copia.sqlite");
+        base_en_disco(&copia, "Otra");
+
+        stage_restore(&e.paths, &copia).unwrap();
+        assert!(cancel_pending_restore(&e.paths).unwrap());
+        assert!(!cancel_pending_restore(&e.paths).unwrap());
+        assert!(apply_pending_restore(&e.paths).unwrap().is_none());
     }
 }

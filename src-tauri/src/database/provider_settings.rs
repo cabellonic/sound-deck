@@ -17,6 +17,11 @@ use super::Database;
 #[serde(rename_all = "camelCase", default)]
 pub struct ProviderConfig {
     pub api_key: Option<String>,
+    /// Client id de OAuth2. En Freesound acompana a la API key, que hace de
+    /// client secret de la misma credencial.
+    pub client_id: Option<String>,
+    /// Tokens de la cuenta conectada. Nunca salen al frontend.
+    pub oauth: Option<crate::providers::oauth::OAuthTokens>,
 }
 
 #[derive(Debug, Clone)]
@@ -74,18 +79,48 @@ pub fn set_enabled(db: &Database, provider_id: &str, enabled: bool) -> AppResult
 
 /// Guarda la API key. Una cadena vacia la borra.
 pub fn set_api_key(db: &Database, provider_id: &str, api_key: Option<&str>) -> AppResult<()> {
+    update_config(db, provider_id, |config| {
+        config.api_key = api_key
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+    })
+}
+
+/// Guarda el client id de OAuth2. Una cadena vacia lo borra.
+pub fn set_client_id(db: &Database, provider_id: &str, client_id: Option<&str>) -> AppResult<()> {
+    update_config(db, provider_id, |config| {
+        config.client_id = client_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+    })
+}
+
+/// Guarda (o borra, con `None`) los tokens de la cuenta conectada.
+pub fn set_oauth_tokens(
+    db: &Database,
+    provider_id: &str,
+    tokens: Option<crate::providers::oauth::OAuthTokens>,
+) -> AppResult<()> {
+    update_config(db, provider_id, |config| config.oauth = tokens)
+}
+
+/// Lee, modifica y vuelve a guardar la config sin pisar los campos que no toca.
+fn update_config(
+    db: &Database,
+    provider_id: &str,
+    change: impl FnOnce(&mut ProviderConfig),
+) -> AppResult<()> {
     let existing = get(db, provider_id)?;
     let mut config = existing
         .as_ref()
-        .map(|r| r.config.clone())
+        .map(|record| record.config.clone())
         .unwrap_or_default();
-    config.api_key = api_key
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
+    change(&mut config);
 
     let json = serde_json::to_string(&config)?;
-    let enabled = existing.map(|r| r.enabled).unwrap_or(false);
+    let enabled = existing.map(|record| record.enabled).unwrap_or(false);
 
     let connection = db.lock();
     connection.execute(

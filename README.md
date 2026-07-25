@@ -8,15 +8,20 @@ Soundboard de escritorio con overlay global, biblioteca local y búsqueda en pro
 Local-first: tus audios viven en tu computadora y funcionan sin conexión.
 
 - **Nueve botones por página**, disparables con las teclas `1`–`9`.
-- **Overlay global** (`Ctrl + Alt + Espacio`) que aparece sobre juegos en ventana o borderless,
+- **Overlay global** (`Alt + Inicio`) que aparece sobre juegos en ventana o borderless,
   captura la tecla, reproduce y se cierra devolviendo el foco.
 - **Biblioteca local** con búsqueda instantánea, filtros automáticos y deduplicación por contenido.
 - **Volumen por audio**, que se puede deslinkear del volumen general para domar
-  ese audio que revienta o levantar el que se grabó bajito.
+  ese audio que revienta o levantar el que se grabó bajito. Opcionalmente,
+  **normalización automática** que iguala el volumen de toda la biblioteca.
 - **Imagen por audio**, opcional, que la botonera y el overlay muestran en el botón.
-- **Búsqueda online** mediante proveedores conectables (Freesound incluido).
+  Se asigna arrastrando la imagen sobre el audio en la biblioteca, o desde su menú.
+- **Búsqueda online** mediante proveedores conectables (Freesound incluido). Conectando
+  tu cuenta de Freesound se descarga el archivo original en vez de la preview.
 - **Selección de dispositivo de salida**, incluidos dispositivos virtuales como VB-Cable.
 - Corre en segundo plano desde la bandeja del sistema.
+- **Inicio con el sistema**, opcional: arranca directo en la bandeja al iniciar sesión,
+  sin abrir la ventana.
 
 ---
 
@@ -46,6 +51,10 @@ A la izquierda la botonera, con las nueve teclas de la página activa. A la
 derecha la biblioteca: la pestaña **Guardados** son tus audios locales y la
 pestaña **Internet** busca en los proveedores que tengas activados. Un audio se
 asigna a un botón arrastrándolo, o desde el menú **Asignar a...**.
+
+Soltar una imagen del explorador sobre un audio de la lista se la asigna como
+portada. Si el audio es un resultado de Internet que todavía no descargaste,
+Sound Deck te ofrece descargarlo primero.
 
 ---
 
@@ -152,6 +161,7 @@ src/                          Frontend (React + TypeScript)
 │   └── ui/                   Primitivas sobre Radix + toasts + diálogos
 ├── features/                 Hooks: consultas, mutaciones, eventos, atajos, tema
 ├── lib/                      Capa IPC tipada, eventos, drag and drop, utilidades
+├── i18n/                     Catálogo de textos y hook de traducción
 ├── stores/                   Zustand (solo estado de interfaz)
 ├── types/                    Tipos de dominio, espejo de los structs de Rust
 ├── windows/main/             Ventana principal
@@ -161,8 +171,10 @@ src/                          Frontend (React + TypeScript)
 src-tauri/
 ├── migrations/               SQL de migraciones, embebido en el binario
 ├── capabilities/             Permisos de Tauri 2, por ventana
+├── installer-hooks.nsh       Limpieza del registro al desinstalar (NSIS)
 └── src/
-    ├── audio/                Dispositivos (cpal) y motor de reproducción (rodio)
+    ├── audio/                Dispositivos (cpal), reproducción (rodio) y sonoridad
+    ├── autostart.rs          Inicio con el sistema y arranque oculto en bandeja
     ├── commands/             Comandos expuestos al frontend
     ├── database/             Conexión, migraciones y repositorios
     ├── domain/               Tipos de dominio y reglas puras
@@ -173,7 +185,7 @@ src-tauri/
     ├── library/              Única puerta de entrada de audios a la biblioteca
     ├── overlay/              Control de la ventana overlay
     ├── platform/             Código específico por sistema operativo (Win32 aislado)
-    ├── providers/            Trait `SoundProvider` + Freesound
+    ├── providers/            Trait `SoundProvider`, Freesound y OAuth2
     ├── shortcuts/            Normalización, validación y registro de atajos
     ├── state/                Estado compartido
     └── tray/                 Bandeja del sistema
@@ -305,10 +317,11 @@ Los pasos concretos:
 - **Sin micrófono virtual propio:** ver la sección anterior.
 - **Proveedores no oficiales:** MyInstants depende del HTML del sitio. Puede dejar de
   funcionar sin aviso si lo rediseñan, y sus audios no declaran licencia.
-- **Sin normalización de volumen:** no hay ReplayGain ni limitador. La arquitectura
-  está preparada, pero no entra en esta versión.
-- **Reproducción global de `1`–`9` sin overlay:** desactivada por defecto y todavía no
-  expuesta en la interfaz.
+- **Normalización sin limitador:** la ganancia se limita para que el pico no sature,
+  pero no hay un limitador que comprima picos aislados. Un audio con un pico muy por
+  encima de su volumen medio se va a normalizar menos de lo ideal.
+- **Reproducción global de `1`–`9`:** desactivada por defecto. Al activarla toma nueve
+  combinaciones en todo el sistema, que quedan fuera del alcance de otros programas.
 
 ---
 
@@ -344,6 +357,30 @@ Alguien borró o movió el archivo administrado. Ajustes → Biblioteca →
 Verificá que el proveedor esté activado y con API key válida (**Probar conexión**).
 Si el proveedor falla, el error se muestra arriba de la lista y el resto de la
 aplicación sigue funcionando normalmente.
+
+**Activé "Iniciar con el sistema" y al reiniciar no aparece nada.**
+Es lo esperado: arranca oculto en la bandeja, junto al reloj. El ícono de Sound Deck
+abre la ventana con un clic. Si el ícono tampoco está, revisá que el arranque siga
+activo (en Windows, Administrador de tareas → **Inicio**): Sound Deck respeta lo que
+digas ahí y actualiza el interruptor de Ajustes en el próximo arranque.
+
+**Activé el inicio automático en modo desarrollo.**
+Lo que queda registrado es el ejecutable de `target/debug`, que puede no existir
+después. Desactivalo desde Ajustes antes de borrar la carpeta de compilación.
+
+**Activé "Igualar el volumen" y no cambió nada.**
+Solo se miden los audios al importarlos. Los que ya estaban necesitan una pasada:
+Ajustes → Audio → **Medir**. Los que no se puedan medir siguen sonando como antes.
+
+**El atajo del overlay sigue siendo el viejo.**
+Si venís de una versión anterior, tus atajos guardados se migran a `Alt + Inicio` y
+`Alt + Fin` solo si nunca los cambiaste. Si elegiste los tuyos, se respetan.
+
+**Quiero bajar el archivo original de Freesound, no la preview.**
+Ajustes → Proveedores → Freesound. Además de la API key, pegá el **Client id** y
+apretá **Autorizar en Freesound**: se abre el navegador, autorizás y pegás el código
+que te muestra. Para que Freesound te muestre el código en pantalla, tu credencial
+tiene que estar configurada con esa opción de callback.
 
 **Los logs.**
 Ajustes → Avanzado → **Abrir carpeta de logs**. Para más detalle sin recompilar:
@@ -388,20 +425,29 @@ Implementado y verificado en esta versión:
 - Importación local con validación por contenido, hash y deduplicación.
 - Motor de audio con selección de dispositivo, modos interrupt/overlap y volúmenes.
 - Volumen propio y absoluto por audio y por botón: `botón ?? audio ?? general`.
-- Imagen opcional por audio, visible en la botonera y en el overlay.
+- Imagen opcional por audio, visible en la botonera y en el overlay, asignable
+  arrastrando el archivo sobre el audio en la biblioteca.
 - Botonera con drag and drop, intercambio de slots y teclas `1`–`9`.
 - Overlay con atajo global, captura de teclas, cierre automático y restauración de foco.
 - Configuración completa en seis secciones.
+- Bandeja del sistema: cerrar y minimizar ocultan la ventana, e inicio automático con
+  la sesión que arranca directo en la bandeja.
 - Proveedores Freesound (oficial) y MyInstants (no oficial), con búsqueda,
   previsualización, descarga validada y asignación.
 
-Pendiente, con la arquitectura ya preparada:
+- Restaurar una copia de seguridad, con validación previa y reinicio automático.
+- Reproducción global de `1`–`9` sin abrir el overlay, con modificador configurable.
+- Posición del overlay elegible arrastrándolo, además del centrado automático.
+- Normalización de volumen por medición EBU R128, con techo anticlipping.
 
-- OAuth2 en Freesound para descargar el archivo original.
-- Importar copia de seguridad.
-- Reproducción global de `1`–`9` sin overlay, expuesta en la interfaz.
-- Normalización de volumen (loudness scanning, ReplayGain, limitador).
-- Internacionalización real (la interfaz ya está preparada para i18n).
+- OAuth2 en Freesound para descargar el archivo original en vez de la preview.
+- Toda la interfaz traducida desde un catálogo con claves tipadas: agregar un idioma
+  no toca ningún componente.
+
+Pendiente:
+
+- Un segundo idioma. La infraestructura está y toda la interfaz sale del catálogo;
+  falta escribir un `src/i18n/<idioma>.ts` con las mismas claves.
 
 Fuera de alcance por decisión de diseño: micrófono virtual propio, driver de audio,
 sincronización cloud, cuentas, clasificación con IA, inyección en procesos y hooks de
