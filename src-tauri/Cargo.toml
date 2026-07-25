@@ -1,6 +1,6 @@
 [package]
 name = "sound-deck"
-version = "0.1.0"
+version = "1.0.0"
 description = "Soundboard de escritorio con overlay, biblioteca local y busqueda online"
 authors = ["Sound Deck"]
 edition = "2021"
@@ -58,6 +58,7 @@ sha2 = "0.11"
 time = { version = "0.3", features = ["formatting", "parsing", "macros"] }
 parking_lot = "0.12"
 dunce = "1"
+ebur128 = { version = "0.1", default-features = false }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-global-shortcut = "2"
