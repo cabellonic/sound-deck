@@ -24,6 +24,10 @@ export const en = {
   'app.settings': 'Settings',
   'app.openSettings': 'Open settings',
   'app.noActivePage': 'There is no active page.',
+  'app.minimize': 'Minimize',
+  'app.maximize': 'Maximize',
+  'app.restore': 'Restore',
+  'app.close': 'Close',
 
   'soundboard.title': 'Soundboard',
   'soundboard.label': 'Soundboard page {page}',

@@ -22,7 +22,7 @@
         "resizable": true,
         "center": true,
         "visible": false,
-        "decorations": true,
+        "decorations": false,
         "dragDropEnabled": true,
         "url": "index.html"
       },

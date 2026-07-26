@@ -48,6 +48,7 @@ import type {
 } from '@/types/domain';
 
 import { Onboarding } from './Onboarding';
+import { ResizeEdges, WindowControls } from './WindowChrome';
 
 /** Estado de los dialogos, como una union discriminada en vez de booleanos sueltos. */
 type DialogState =
@@ -329,9 +330,21 @@ export function App() {
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col">
-        <header className="flex h-12 shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-1 px-3">
-          <h1 className="text-sm font-semibold tracking-tight">Sound Deck</h1>
-          <span className="font-mono text-[10px] text-fg-subtle">{version}</span>
+        {/* La ventana no tiene marco del sistema: esta cabecera es la barra de
+            titulo. `data-tauri-drag-region` la vuelve arrastrable y hace que el
+            doble clic maximice, como cualquier ventana. Va tambien en el titulo
+            y la version porque el atributo solo actua sobre el elemento que se
+            toca, no sobre sus hijos. */}
+        <header
+          data-tauri-drag-region
+          className="flex h-12 shrink-0 items-center gap-2 border-b border-border-subtle bg-surface-1 pl-3 pr-1.5"
+        >
+          <h1 data-tauri-drag-region className="text-sm font-semibold tracking-tight">
+            Sound Deck
+          </h1>
+          <span data-tauri-drag-region className="font-mono text-[10px] text-fg-subtle">
+            {version}
+          </span>
 
           <div className="ml-auto flex items-center gap-1.5">
             <Tooltip content={isAnythingPlaying ? t('app.stopAll') : t('app.nothingPlaying')}>
@@ -383,6 +396,9 @@ export function App() {
                 <Settings className="h-4 w-4" aria-hidden />
               </Button>
             </Tooltip>
+
+            <span className="mx-1 h-5 w-px bg-border-subtle" aria-hidden />
+            <WindowControls />
           </div>
         </header>
 
@@ -682,6 +698,7 @@ export function App() {
 
       <DragLayer />
       <Toaster />
+      <ResizeEdges />
     </TooltipProvider>
   );
 }

@@ -1,9 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-window",
-  "description": "Permisos adicionales exclusivos de la ventana principal: dialogos de archivo y apertura de carpetas.",
+  "description": "Permisos adicionales exclusivos de la ventana principal: barra de titulo propia, dialogos de archivo y apertura de carpetas.",
   "windows": ["main"],
   "permissions": [
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-start-resize-dragging",
     "dialog:allow-open",
     "dialog:allow-message",
     "dialog:allow-confirm",

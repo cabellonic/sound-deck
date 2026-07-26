@@ -34,6 +34,10 @@ export const es = {
   'app.settings': 'Configuracion',
   'app.openSettings': 'Abrir configuracion',
   'app.noActivePage': 'No hay ninguna pagina activa.',
+  'app.minimize': 'Minimizar',
+  'app.maximize': 'Maximizar',
+  'app.restore': 'Restaurar',
+  'app.close': 'Cerrar',
 
   // --- Botonera --------------------------------------------------------------
   'soundboard.title': 'Botonera',
