@@ -123,6 +123,8 @@ export interface GeneralSettings {
   overlayOnActiveMonitor: boolean;
   /** Posicion elegida a mano, en pixeles fisicos. `null` centra automaticamente. */
   overlayPosition: { x: number; y: number } | null;
+  /** Tamano elegido a mano, en pixeles logicos. `null` usa el de la ventana original. */
+  overlaySize: { width: number; height: number } | null;
   closeOverlayAfterPlay: boolean;
   closeOverlayOnBlur: boolean;
   rememberLastPage: boolean;

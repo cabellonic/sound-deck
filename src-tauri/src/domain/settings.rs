@@ -38,6 +38,18 @@ pub struct OverlayPosition {
     pub y: i32,
 }
 
+/// Tamano del overlay, en pixeles logicos.
+///
+/// Logicos y no fisicos como la posicion: el overlay tiene que verse del mismo
+/// tamano en un monitor al 100% y en uno al 150%, mientras que la posicion
+/// necesita ser exacta en el escritorio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlaySize {
+    pub width: u32,
+    pub height: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct GeneralSettings {
@@ -48,6 +60,8 @@ pub struct GeneralSettings {
     pub overlay_on_active_monitor: bool,
     /// Posicion elegida a mano. `None` deja el centrado automatico.
     pub overlay_position: Option<OverlayPosition>,
+    /// Tamano elegido a mano. `None` deja el de la ventana original.
+    pub overlay_size: Option<OverlaySize>,
     pub close_overlay_after_play: bool,
     pub close_overlay_on_blur: bool,
     pub remember_last_page: bool,
@@ -68,6 +82,7 @@ impl Default for GeneralSettings {
             show_notifications: true,
             overlay_on_active_monitor: true,
             overlay_position: None,
+            overlay_size: None,
             close_overlay_after_play: true,
             close_overlay_on_blur: true,
             remember_last_page: true,

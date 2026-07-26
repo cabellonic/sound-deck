@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingsDialog } from '@/components/settings/SettingsDialog';
-import { en, es } from '@/i18n';
+import { en, es, translate } from '@/i18n';
 import * as ipc from '@/lib/ipc';
 import type * as IpcModule from '@/lib/ipc';
 
@@ -77,6 +77,15 @@ describe('SettingsDialog', () => {
       screen.getByRole('switch', { name: es['settings.general.minimizeToTray'] }),
     ).toBeInTheDocument();
     expect(screen.getByText(es['settings.general.overlayPositionAuto'])).toBeInTheDocument();
+  });
+
+  it('muestra el tamano del overlay sin uno guardado como el de fabrica', () => {
+    expect(
+      screen.getByRole('combobox', { name: es['settings.general.overlaySize'] }),
+    ).toHaveTextContent(es['settings.general.overlaySizeMedium']);
+    expect(
+      screen.getByText(translate('es', 'settings.general.overlaySizeHint', { width: 520 })),
+    ).toBeInTheDocument();
   });
 
   it('traduce tambien las pestanas que no estan a la vista al abrir', async () => {

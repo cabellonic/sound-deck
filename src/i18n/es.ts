@@ -230,8 +230,10 @@ export const es = {
   'overlay.noPage': 'Sin pagina',
   'overlay.close': 'Cerrar overlay',
   'overlay.buttons': 'Botones de la pagina',
-  'overlay.placementHint': 'Arrastra desde aca para elegir donde queres el overlay.',
-  'overlay.placementSave': 'Guardar posicion',
+  'overlay.placementHint': 'Arrastra desde cualquier parte para moverlo.',
+  'overlay.placementResizeHint': 'Tira de la esquina: el alto se ajusta solo.',
+  'overlay.placementResize': 'Cambiar el tamano del overlay',
+  'overlay.placementSave': 'Guardar',
 
   // --- Onboarding ------------------------------------------------------------
   'onboarding.title': 'Bienvenido a Sound Deck',
@@ -296,7 +298,14 @@ export const es = {
   'settings.general.overlayPositionAuto':
     'Se centra solo. Podes elegir un lugar fijo y arrastrarlo hasta ahi.',
   'settings.general.overlayCenter': 'Centrar solo',
-  'settings.general.overlayPick': 'Elegir posicion',
+  'settings.general.overlayPick': 'Mover y redimensionar',
+  'settings.general.overlaySize': 'Tamano del overlay',
+  'settings.general.overlaySizeHint':
+    'Mide {width} px de ancho; el alto lo ajusta el contenido. Tambien podes tirar de la esquina mientras lo moves.',
+  'settings.general.overlaySizeSmall': 'Chico',
+  'settings.general.overlaySizeMedium': 'Mediano',
+  'settings.general.overlaySizeLarge': 'Grande',
+  'settings.general.overlaySizeCustom': 'Personalizado',
   'settings.general.closeOverlayAfterPlay': 'Cerrar overlay despues de reproducir',
   'settings.general.closeOverlayAfterPlayHint':
     'Recomendado: vuelve el foco al juego o programa anterior.',

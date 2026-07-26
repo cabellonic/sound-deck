@@ -48,6 +48,7 @@ import { acceleratorFromEvent, formatAccelerator, volumeToPercent } from '@/lib/
 import { useUiStore, type SettingsTab } from '@/stores/useUiStore';
 import type {
   AppSettings,
+  GeneralSettings,
   PlaybackMode,
   ShortcutAction,
   ProviderStatus,
@@ -83,6 +84,27 @@ function Row({
 }
 
 // --- General ----------------------------------------------------------------
+
+/**
+ * Tamanos del overlay, en pixeles logicos y con la proporcion de la ventana
+ * original. `medium` es el tamano de fabrica, y por eso se guarda como `null`.
+ */
+const OVERLAY_SIZES = {
+  small: { width: 420, height: 372 },
+  medium: { width: 520, height: 460 },
+  large: { width: 660, height: 584 },
+} as const;
+
+type OverlaySizeName = keyof typeof OVERLAY_SIZES | 'custom';
+
+function overlaySizeName(size: GeneralSettings['overlaySize']): OverlaySizeName {
+  if (!size) return 'medium';
+
+  const match = Object.entries(OVERLAY_SIZES).find(
+    ([, preset]) => preset.width === size.width && preset.height === size.height,
+  );
+  return (match?.[0] as OverlaySizeName | undefined) ?? 'custom';
+}
 
 function GeneralSection({ settings, onPatch }: SectionProps) {
   const { t } = useTranslation();
@@ -183,6 +205,39 @@ function GeneralSection({ settings, onPatch }: SectionProps) {
           </Button>
         </div>
       </Row>
+
+      <Row
+        label={t('settings.general.overlaySize')}
+        hint={t('settings.general.overlaySizeHint', {
+          width: general.overlaySize?.width ?? OVERLAY_SIZES.medium.width,
+        })}
+      >
+        <Select
+          value={overlaySizeName(general.overlaySize)}
+          onValueChange={(value) =>
+            set({
+              overlaySize: value === 'medium' ? null : OVERLAY_SIZES[value as 'small' | 'large'],
+            })
+          }
+        >
+          <SelectTrigger className="w-40" aria-label={t('settings.general.overlaySize')}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="small">{t('settings.general.overlaySizeSmall')}</SelectItem>
+            <SelectItem value="medium">{t('settings.general.overlaySizeMedium')}</SelectItem>
+            <SelectItem value="large">{t('settings.general.overlaySizeLarge')}</SelectItem>
+            {/* Solo aparece si el tamano vino de arrastrar la esquina: no es
+                algo que se pueda elegir desde aca. */}
+            {overlaySizeName(general.overlaySize) === 'custom' ? (
+              <SelectItem value="custom" disabled>
+                {t('settings.general.overlaySizeCustom')}
+              </SelectItem>
+            ) : null}
+          </SelectContent>
+        </Select>
+      </Row>
+
       <Row
         label={t('settings.general.closeOverlayAfterPlay')}
         hint={t('settings.general.closeOverlayAfterPlayHint')}

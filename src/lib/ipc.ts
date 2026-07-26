@@ -215,10 +215,15 @@ export const resetShortcuts = () => call<ShortcutUpdate>('reset_shortcuts');
 export const listShortcutActions = () => call<ShortcutActionInfo[]>('list_shortcut_actions');
 export const setAutostart = (enabled: boolean) => call<boolean>('set_autostart', { enabled });
 
-// --- Posicion del overlay ---------------------------------------------------
+// --- Posicion y tamano del overlay ------------------------------------------
 
 export const beginOverlayPlacement = () => call<void>('begin_overlay_placement');
-export const saveOverlayPlacement = () => call<{ x: number; y: number }>('save_overlay_placement');
+/** `fitHeight` es el alto en pixeles logicos que ocupa el overlay dibujado. */
+export const saveOverlayPlacement = (fitHeight?: number) =>
+  call<{ position: { x: number; y: number }; size: { width: number; height: number } }>(
+    'save_overlay_placement',
+    { fitHeight },
+  );
 export const cancelOverlayPlacement = () => call<void>('cancel_overlay_placement');
 export const clearOverlayPlacement = () => call<void>('clear_overlay_placement');
 

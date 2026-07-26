@@ -98,6 +98,7 @@ export function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings 
       showNotifications: true,
       overlayOnActiveMonitor: true,
       overlayPosition: null,
+      overlaySize: null,
       closeOverlayAfterPlay: true,
       closeOverlayOnBlur: true,
       rememberLastPage: true,

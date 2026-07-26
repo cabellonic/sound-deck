@@ -5,9 +5,9 @@
 //! cual era la ventana activa para devolverle el foco al cerrarlo.
 
 use parking_lot::Mutex;
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, LogicalSize, Manager, WebviewWindow};
 
-use crate::domain::settings::{GeneralSettings, OverlayPosition};
+use crate::domain::settings::{GeneralSettings, OverlayPosition, OverlaySize};
 use crate::errors::{AppError, AppResult, ErrorKind};
 use crate::events::{self, OverlayVisibilityPayload};
 use crate::platform::{self, ForegroundWindow};
@@ -15,12 +15,26 @@ use crate::platform::{self, ForegroundWindow};
 pub const OVERLAY_LABEL: &str = "overlay";
 pub const MAIN_LABEL: &str = "main";
 
+/// Limites al redimensionar, en pixeles logicos.
+///
+/// Son una red de seguridad, no una opinion: quien lo achica hasta que solo se
+/// distinguen las imagenes esta eligiendo eso. El alto lo decide el contenido,
+/// asi que su limite solo esta para que la ventana nunca quede sin nada.
+const MIN_SIZE: LogicalSize<f64> = LogicalSize::new(300.0, 200.0);
+const MAX_SIZE: LogicalSize<f64> = LogicalSize::new(1100.0, 1100.0);
+
+/// Posicion y tamano desde los que se entro al modo de ajuste, para poder volver.
+#[derive(Clone, Copy)]
+struct PreviousPlacement {
+    position: Option<OverlayPosition>,
+    size: Option<OverlaySize>,
+}
+
 /// Recuerda la ventana externa que tenia el foco antes de abrir el overlay.
 #[derive(Default)]
 pub struct OverlayState {
     previous_window: Mutex<Option<ForegroundWindow>>,
-    /// Posicion desde la que se entro al modo de colocacion, para poder volver.
-    placing: Mutex<Option<Option<OverlayPosition>>>,
+    placing: Mutex<Option<PreviousPlacement>>,
 }
 
 impl OverlayState {
@@ -28,11 +42,19 @@ impl OverlayState {
         Self::default()
     }
 
-    /// Si el overlay se esta colocando a mano. Mientras dure no se cierra al
+    /// Si el overlay se esta ajustando a mano. Mientras dure no se cierra al
     /// perder el foco ni despues de reproducir: se esta arrastrando.
     pub fn is_placing(&self) -> bool {
         self.placing.lock().is_some()
     }
+}
+
+/// Lo que quedo guardado al terminar de ajustar el overlay.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OverlayPlacement {
+    pub position: OverlayPosition,
+    pub size: OverlaySize,
 }
 
 fn overlay_window(app: &AppHandle) -> AppResult<WebviewWindow> {
@@ -74,6 +96,13 @@ pub fn show(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
 
 /// Oculta el overlay y devuelve el foco a la aplicacion anterior si se puede.
 pub fn hide(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
+    // Cerrarlo mientras se lo ajusta es cancelar el ajuste. Si no, el modo de
+    // ajuste quedaria prendido y el overlay volveria a abrirse con la barra de
+    // colocacion en vez de con los botones.
+    if state.is_placing() {
+        return cancel_placement(app, state);
+    }
+
     let window = overlay_window(app)?;
     let was_visible = window.is_visible().unwrap_or(false);
     window.hide()?;
@@ -108,19 +137,28 @@ pub fn toggle(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
     }
 }
 
-/// Abre el overlay para que el usuario lo arrastre a donde quiera.
+/// Abre el overlay para que el usuario lo arrastre y lo redimensione.
 ///
 /// Mientras dure no se cierra al perder el foco: se lo va a estar arrastrando
 /// con la ventana de Ajustes adelante.
 pub fn begin_placement(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
     let app_state = app.state::<crate::state::AppState>();
-    let previous = app_state.settings()?.general.overlay_position;
-    *state.placing.lock() = Some(previous);
+    let general = app_state.settings()?.general;
+    *state.placing.lock() = Some(PreviousPlacement {
+        position: general.overlay_position,
+        size: general.overlay_size,
+    });
 
     let window = overlay_window(app)?;
-    if let Err(error) = place(&window, Some(&app_state.settings()?.general)) {
+    if let Err(error) = place(&window, Some(&general)) {
         tracing::debug!(%error, "no se pudo colocar el overlay al empezar a moverlo");
     }
+
+    // El overlay solo se puede redimensionar mientras se lo ajusta: el resto
+    // del tiempo es una ventana fija que no se toca sin querer al jugar.
+    window.set_min_size(Some(MIN_SIZE))?;
+    window.set_max_size(Some(MAX_SIZE))?;
+    window.set_resizable(true)?;
 
     window.show()?;
     window.set_focus()?;
@@ -128,33 +166,65 @@ pub fn begin_placement(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
     Ok(())
 }
 
-/// Guarda donde quedo el overlay y sale del modo de colocacion.
-pub fn save_placement(app: &AppHandle, state: &OverlayState) -> AppResult<OverlayPosition> {
+/// Guarda donde y de que tamano quedo el overlay, y sale del modo de ajuste.
+///
+/// `fit_height` es el alto que ocupa el contenido, medido por el propio
+/// overlay: el ancho lo elige el usuario estirando la esquina, pero el alto se
+/// ajusta solo para no guardar ni un hueco transparente de mas ni dejar el pie
+/// cortado.
+pub fn save_placement(
+    app: &AppHandle,
+    state: &OverlayState,
+    fit_height: Option<u32>,
+) -> AppResult<OverlayPlacement> {
     let window = overlay_window(app)?;
+    let scale = window.scale_factor()?;
+
+    if let Some(height) = fit_height {
+        let height = f64::from(height).clamp(MIN_SIZE.height, MAX_SIZE.height);
+        let width = window.inner_size()?.to_logical::<f64>(scale).width;
+        window.set_size(LogicalSize::new(width, height))?;
+    }
+
     let position = window.outer_position()?;
-    let position = OverlayPosition {
-        x: position.x,
-        y: position.y,
+    let size = window.outer_size()?.to_logical::<f64>(scale);
+    let placement = OverlayPlacement {
+        position: OverlayPosition {
+            x: position.x,
+            y: position.y,
+        },
+        size: OverlaySize {
+            width: size.width.round() as u32,
+            height: size.height.round() as u32,
+        },
     };
 
     let app_state = app.state::<crate::state::AppState>();
     let mut settings = app_state.settings()?;
-    settings.general.overlay_position = Some(position);
+    settings.general.overlay_position = Some(placement.position);
+    settings.general.overlay_size = Some(placement.size);
     crate::database::settings::save_general(&app_state.db, &settings.general)?;
 
     finish_placement(app, state)?;
     crate::events::emit(app, crate::events::SETTINGS_CHANGED, settings);
-    Ok(position)
+    Ok(placement)
 }
 
-/// Sale del modo de colocacion dejando la posicion como estaba.
+/// Sale del modo de ajuste dejando posicion y tamano como estaban.
 pub fn cancel_placement(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
-    let previous = state.placing.lock().take().flatten();
+    // Sin ajuste en curso no hay nada que restaurar: seguir adelante borraria
+    // la posicion guardada, que es justo lo contrario de cancelar.
+    let Some(previous) = state.placing.lock().take() else {
+        return Ok(());
+    };
 
     let app_state = app.state::<crate::state::AppState>();
     let mut settings = app_state.settings()?;
-    if settings.general.overlay_position != previous {
-        settings.general.overlay_position = previous;
+    if settings.general.overlay_position != previous.position
+        || settings.general.overlay_size != previous.size
+    {
+        settings.general.overlay_position = previous.position;
+        settings.general.overlay_size = previous.size;
         crate::database::settings::save_general(&app_state.db, &settings.general)?;
         crate::events::emit(app, crate::events::SETTINGS_CHANGED, settings);
     }
@@ -177,6 +247,7 @@ fn finish_placement(app: &AppHandle, state: &OverlayState) -> AppResult<()> {
     emit_placement(app, false);
 
     let window = overlay_window(app)?;
+    window.set_resizable(false)?;
     window.hide()?;
     crate::events::emit(
         app,
@@ -209,11 +280,19 @@ pub fn is_visible(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// Coloca el overlay donde corresponda antes de mostrarlo.
+/// Deja el overlay del tamano y en el lugar que corresponda antes de mostrarlo.
 ///
-/// Una posicion elegida a mano gana sobre todo lo demas; si no hay, se centra
-/// en el monitor activo o, si esa opcion esta apagada, en el principal.
+/// El tamano va primero porque el centrado depende de el. Una posicion elegida
+/// a mano gana sobre todo lo demas; si no hay, se centra en el monitor activo
+/// o, si esa opcion esta apagada, en el principal.
 fn place(window: &WebviewWindow, general: Option<&GeneralSettings>) -> tauri::Result<()> {
+    if let Some(size) = general.and_then(|general| general.overlay_size) {
+        window.set_size(LogicalSize::new(
+            f64::from(size.width),
+            f64::from(size.height),
+        ))?;
+    }
+
     match general.and_then(|general| general.overlay_position) {
         Some(position) => {
             window.set_position(tauri::PhysicalPosition::new(position.x, position.y))?;

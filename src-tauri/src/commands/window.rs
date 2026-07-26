@@ -30,7 +30,7 @@ pub fn focus_main_window(app: AppHandle) -> AppResult<()> {
     overlay::focus_main_window(&app)
 }
 
-/// Abre el overlay para arrastrarlo a la posicion que el usuario quiera (§16).
+/// Abre el overlay para que el usuario lo arrastre y lo redimensione (§16).
 #[tauri::command(async)]
 pub fn begin_overlay_placement(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
     overlay::begin_placement(&app, &state.overlay)
@@ -40,8 +40,9 @@ pub fn begin_overlay_placement(app: AppHandle, state: State<'_, AppState>) -> Ap
 pub fn save_overlay_placement(
     app: AppHandle,
     state: State<'_, AppState>,
-) -> AppResult<crate::domain::settings::OverlayPosition> {
-    overlay::save_placement(&app, &state.overlay)
+    fit_height: Option<u32>,
+) -> AppResult<overlay::OverlayPlacement> {
+    overlay::save_placement(&app, &state.overlay, fit_height)
 }
 
 #[tauri::command(async)]
