@@ -1,6 +1,6 @@
 [package]
 name = "sound-deck"
-version = "1.0.0"
+version = "1.0.1"
 description = "Soundboard de escritorio con overlay, biblioteca local y busqueda online"
 authors = ["Sound Deck"]
 edition = "2021"
