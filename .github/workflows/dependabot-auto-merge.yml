@@ -19,7 +19,7 @@ jobs:
     steps:
       # Este workflow no hace checkout: `pull_request_target` corre con el token
       # del repositorio, y ejecutar codigo del PR con ese token seria un agujero.
-      - uses: dependabot/fetch-metadata@v2
+      - uses: dependabot/fetch-metadata@v3
         id: meta
 
       - if: steps.meta.outputs.update-type != 'version-update:semver-major'
