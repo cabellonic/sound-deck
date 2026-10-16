@@ -27,7 +27,7 @@ serde_json = "1"
 rusqlite = { version = "0.40", features = ["bundled"] }
 
 # Audio. cpal se usa a traves del re-export `rodio::cpal` para garantizar la misma version.
-rodio = { version = "0.22", default-features = false, features = [
+rodio = { version = "0.23", default-features = false, features = [
   "playback",
   "mp3",
   "vorbis",
